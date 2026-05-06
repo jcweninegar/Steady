@@ -331,19 +331,32 @@ const CaptureSVG = ({type, color}) => {
 
 const TrashIcon = ({c}) => <svg width="12" height="13" viewBox="0 0 14 16" fill="none"><path d="M1 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4M3 4l.9 9.5a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9L11 4" stroke={c} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
-const formatTask = (raw, id) => ({
-  id,
-  label: raw.label,
-  area: raw.area || "work",
-  hours: "0h",
-  mins: raw.duration ? Math.round(raw.duration) + "m" : "30m",
-  dueDate: raw.dueDate || "",
-  desc: raw.note || "",
-  subtasks: raw.steps || [],
-  done: false,
-  notes: "",
-  urgency: raw.urgency || "soon",
-});
+// Convert raw duration (minutes) to valid hours/mins select values (rounded to 15m)
+const durationToHM = (totalMins) => {
+  const clamped = Math.max(5, Math.min(240, totalMins || 30));
+  const rounded = Math.round(clamped / 15) * 15;
+  const h = Math.min(4, Math.floor(rounded / 60));
+  const m = rounded % 60;
+  const mStr = m === 0 ? "0m" : m === 15 ? "15m" : m === 30 ? "30m" : "45m";
+  return { hours: h + "h", mins: mStr };
+};
+
+const formatTask = (raw, id) => {
+  const { hours, mins } = durationToHM(raw.duration || 30);
+  return {
+    id,
+    label: raw.label,
+    area: raw.area || "work",
+    hours,
+    mins,
+    dueDate: raw.dueDate || "",
+    desc: raw.note || "",
+    subtasks: (raw.steps || []).map(s => ({ text: s.text || s, done: false, mins: (s.dur || 15) + "m", dueDate: "" })),
+    done: false,
+    notes: "",
+    urgency: raw.urgency || "soon",
+  };
+};
 
 // Converts a message to a text string for AI history
 const msgToHistory = (m) => {
@@ -361,9 +374,28 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
   const [loading, setLoading] = useState(false);
   const [hasExtracted, setHasExtracted] = useState(false);
   const [pendingClarification, setPendingClarification] = useState(null);
+  const [chatSheetTask, setChatSheetTask] = useState(null);
+  const [chatSheetOpen, setChatSheetOpen] = useState(false);
   const extractedRef = useRef([]); // formatted tasks from last extraction (with IDs)
   const bottomRef = useRef(null);
   const hasRun = useRef(false);
+
+  const openChatTask = (task) => { setChatSheetTask(task); setChatSheetOpen(true); };
+  const saveChatTask = (saved) => {
+    // Update message formattedTasks in-place
+    setMessages(p => p.map(m => !m.isDump ? m : {...m, formattedTasks: m.formattedTasks.map(t => t.id === saved.id ? saved : t)}));
+    // Update extractedRef so braindump-chat has fresh data
+    extractedRef.current = extractedRef.current.map(t => t.id === saved.id ? saved : t);
+    // Propagate to global task list
+    if (onUpdateTasks) onUpdateTasks(tasks.map(t => t.id === saved.id ? saved : t));
+    setChatSheetOpen(false);
+  };
+  const deleteChatTask = (id) => {
+    setMessages(p => p.map(m => !m.isDump ? m : {...m, formattedTasks: m.formattedTasks.filter(t => t.id !== id)}));
+    extractedRef.current = extractedRef.current.filter(t => t.id !== id);
+    if (onRemoveTask) onRemoveTask(id);
+    setChatSheetOpen(false);
+  };
 
   const scrollToBottom = () => bottomRef.current?.scrollIntoView({behavior:"smooth"});
   useEffect(scrollToBottom, [messages, loading]);
@@ -502,33 +534,33 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
 
                   {(msg.formattedTasks.length + msg.captures.length) > 0 && (
                     <div style={{marginBottom:16,background:T.surface,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-                      {/* Tasks — auto-added, each has a trash button */}
+                      {/* Tasks — tappable to open detail sheet */}
                       {msg.formattedTasks.length > 0 && (
                         <div>
-                          <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.4px",textTransform:"uppercase",padding:"11px 14px 8px"}}>
-                            {msg.formattedTasks.length} task{msg.formattedTasks.length!==1?"s":""} added to plan
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 14px 8px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.4px",textTransform:"uppercase"}}>
+                              {msg.formattedTasks.length} task{msg.formattedTasks.length!==1?"s":""} added to plan
+                            </div>
+                            <div style={{fontSize:10,color:T.muted,fontStyle:"italic"}}>tap to view</div>
                           </div>
                           {msg.formattedTasks.map((task, j) => (
-                            <div key={task.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 14px",borderTop:"1px solid "+T.divider}}>
-                              <div style={{width:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:3}}>
+                            <div key={task.id} onClick={()=>openChatTask(task)}
+                              style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:"1px solid "+T.divider,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+                              <div style={{width:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                                 <AreaIconSVG id={task.area||"work"} size={13} color={T.muted}/>
                               </div>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35,marginBottom:2}}>{task.label}</div>
+                                <div style={{fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35,marginBottom:task.desc?2:0}}>{task.label}</div>
                                 <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
                                   <span style={{fontSize:11,color:T.muted,textTransform:"capitalize"}}>{task.area}</span>
+                                  <span style={{fontSize:11,color:T.muted}}>· {task.hours==="0h"?"":task.hours+" "}{task.mins}</span>
                                   {task.urgency&&task.urgency!=="someday"&&<span style={{fontSize:11,fontWeight:600,color:URGENCY_COLOR(task.urgency,T)}}>· {task.urgency}</span>}
                                   {task.dueDate&&<span style={{fontSize:11,color:T.muted}}>· {task.dueDate}</span>}
                                 </div>
-                                {task.desc&&<div style={{fontSize:12,color:T.muted,marginTop:2,lineHeight:1.5,fontStyle:"italic"}}>{task.desc}</div>}
+                                {task.desc&&<div style={{fontSize:12,color:T.muted,marginTop:3,lineHeight:1.5,fontStyle:"italic"}}>{task.desc}</div>}
                               </div>
-                              <button
-                                onClick={()=>{ onRemoveTask&&onRemoveTask(task.id); setMessages(p=>p.map((m,mi)=>mi!==i?m:{...m,formattedTasks:m.formattedTasks.filter(t=>t.id!==task.id)})); }}
-                                style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",flexShrink:0,opacity:0.4,marginTop:2,lineHeight:1}}
-                                title="Remove this task"
-                              >
-                                <TrashIcon c={T.sub}/>
-                              </button>
+                              {/* Chevron affordance */}
+                              <svg width="6" height="10" viewBox="0 0 7 12" fill="none" style={{flexShrink:0,opacity:0.35}}><path d="M1 1l5 5-5 5" stroke={T.sub} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </div>
                           ))}
                         </div>
@@ -583,6 +615,15 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
         )}
         <div ref={bottomRef}/>
       </div>
+      {/* Task detail sheet — opens when user taps a task card in chat */}
+      <TaskSheet
+        T={T}
+        task={chatSheetTask}
+        open={chatSheetOpen}
+        onClose={()=>setChatSheetOpen(false)}
+        onSave={saveChatTask}
+        onDelete={deleteChatTask}
+      />
     </div>
   );
 });

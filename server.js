@@ -37,45 +37,92 @@ app.post("/api/extract", async (req, res) => {
   if (!text) return res.status(400).json({ error: "text required" });
 
   const today = new Date().toLocaleDateString("en-CA");
+  const todayFull = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
 
-  const system = `You are a JSON-only extraction engine for an ADHD support app.
-Split compound inputs into separate items. Return ONLY valid JSON — no markdown, no explanation, no preamble.`;
+  const system = `You are a JSON-only extraction engine for an ADHD support app called steady.
+Split compound inputs into separate items. Fully shape each task. Return ONLY valid JSON — no markdown, no explanation, no preamble.`;
 
-  const prompt = `Split this brain dump into tasks and captures. Classify each item.
+  const prompt = `Split this brain dump into tasks and captures. Fully shape each task.
 
-Input: ${text}
+TODAY: ${todayFull} (${today})
+INPUT: "${text}"
 
-Rules:
-- Each distinct thing = a separate item
-- Tasks = things the user needs to DO (call, pay, clean, email, fix, buy, schedule, etc.)
-- Captures = events, feelings, ideas, observations that are NOT action items (worries, plans already made, things they noticed)
-- Area options: work, home, health, money, close, contribution, meaning
-- home = cleaning, chores, house stuff; close = kids, family, relationships
-- DO NOT guess or infer urgency or due dates. Only set urgency/dueDate when the user explicitly says a time (e.g. "today", "by Friday", "urgent", "tomorrow", "next week").
-- If timing is not explicitly stated: urgency = "someday", dueDate = null
-- clarifying_question: if 2 or more tasks have no explicit timing, set ONE broad open-ended question on the FIRST task only (null on all others) inviting the user to add any due dates or context. Vary the phrasing naturally — e.g. "Do any of these have deadlines?", "Anything time-sensitive in here?", "Want to add timing or context to any of these?", "Any of these need to happen by a certain date?". If all tasks already have timing, or there's only 1 task, set null on all.
+━━━ CLASSIFICATION ━━━
+- Tasks = things the user needs to DO (call, pay, email, review, buy, schedule, fix, pick up, text, etc.)
+- Captures = events/feelings/ideas/observations NOT requiring action right now (worries, calendar events already set, things they noticed, plans already made)
+- Area options: work | home | health | money | close | contribution | meaning
+  · close = family, kids, relationships · home = chores, house stuff
 
-Return this exact JSON:
+━━━ TITLE (label) ━━━
+- Start with a strong action verb. Be as specific as possible.
+- Good: "Call Lizzy about the lease renewal" not "Call person"
+- Good: "Pay Chase credit card bill" not "Pay bill"  
+- If the name is unknown but the role is clear: "Call the bank about funding" (role is fine)
+- Max ~8 words. Clear and scannable.
+
+━━━ DURATION — estimate thoughtfully based on task type ━━━
+Phone call (quick personal/family): 10
+Phone call (business, logistics): 20
+Phone call (sales, negotiation, complex): 30
+Text or email reply: 5
+Send a detailed email: 15
+Errand / pickup / drop-off: 30
+Pay a bill online: 10
+Schedule an appointment: 10
+Review a short document: 20
+Review a long document or proposal: 45
+Admin task (form, application): 30
+Meeting or call with agenda: 60
+Deep work / creative / writing: 90
+Quick check / look something up: 5
+Grocery run or shopping trip: 45
+Clean / tidy a space: 30
+
+━━━ DESCRIPTION (note field) ━━━
+Write 1–2 sentences of useful context — what the person needs to know to actually do this task.
+- For calls: who to call, what to discuss, any important details from the input
+- For reviews: what document, what to look for
+- For errands: where, what to bring
+- If there's no inferrable context at all, set note to null
+- Never say "no description available" — either write something useful or use null
+
+━━━ STEPS (steps field) ━━━
+Only add steps for tasks that naturally have 3+ sub-steps (e.g., a complex errand, a multi-part review).
+Most tasks: steps = []
+Format: [{"text": "step description", "dur": 5}]
+
+━━━ TIMING ━━━
+- Only set urgency/dueDate when the user EXPLICITLY mentions timing ("today", "by Friday", "urgent", "tomorrow", "next week", "due Thursday")
+- Convert relative dates to YYYY-MM-DD using today's date above
+- If no timing mentioned: urgency = "soon", dueDate = null
+- urgency options: now | soon | someday
+
+━━━ CLARIFYING QUESTION ━━━
+If 2+ tasks have no explicit timing: set ONE broad question on the FIRST task only (null on all others).
+Vary naturally: "Do any of these have deadlines?", "Anything time-sensitive here?", "Any of these need to happen by a certain date or time?", "Want to add timing or context to any of these?"
+If all tasks have timing, or there's only 1 task: null on all.
+
+Return ONLY this exact JSON:
 {
   "tasks": [{
-    "label": "short action phrase starting with a verb",
+    "label": "verb-first specific title",
     "area": "area id",
     "urgency": "now|soon|someday",
     "dueDate": "YYYY-MM-DD or null",
     "duration": 30,
     "steps": [],
     "clarifying_question": null,
-    "note": null
+    "note": "useful context sentence or null"
   }],
   "captures": [{
     "text": "the item",
     "type": "calendar-event|worry|idea|observation"
   }],
-  "acknowledgment": "warm one-sentence acknowledgment of what they shared (no lists, just a human response)"
+  "acknowledgment": "warm one-sentence acknowledgment of what they shared — natural, human, no lists"
 }`;
 
   try {
-    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 1200);
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 1500);
     const clean = raw.replace(/```json|```/g, "").trim();
     const result = JSON.parse(clean);
     res.json(result);
