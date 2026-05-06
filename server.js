@@ -121,6 +121,57 @@ Return ONLY this JSON:
   }
 });
 
+// ── Brain-dump follow-up: task-aware ongoing conversation ────────────────────
+app.post("/api/braindump-chat", async (req, res) => {
+  const { messages, tasks } = req.body;
+  if (!messages) return res.status(400).json({ error: "messages required" });
+
+  const today = new Date().toLocaleDateString("en-CA");
+
+  const taskList = (tasks || [])
+    .filter(t => !t.done)
+    .map((t, i) =>
+      `[ID:${t.id}] ${i + 1}. "${t.label}" — ${t.area}, ${t.urgency}${t.dueDate ? ", due " + t.dueDate : ""}${t.desc ? ", note: " + t.desc : ""}`
+    ).join("\n");
+
+  const system = `You are steady., a calm ADHD support companion and second brain.
+Today: ${today}
+
+The user's current tasks:
+${taskList || "(none yet)"}
+
+Your role: help the user refine their task list through natural conversation.
+— When they mention corrections, new details, due dates, combining tasks, or deletions — make those changes.
+— When making ANY task changes, include a COMPLETE updated task array at the very end of your response in this exact XML block (ALL tasks, not just changed ones):
+<tasks>[{"id":"preserve existing id exactly","label":"...","area":"work|home|health|money|close|contribution|meaning","urgency":"now|soon|someday","dueDate":"YYYY-MM-DD or null","desc":"...","done":false,"subtasks":[],"notes":"","hours":"0h","mins":"30m"}]</tasks>
+— For brand new tasks the user mentions, omit the id field entirely.
+— If the user is just chatting or asking questions with NO task changes needed, do NOT include the <tasks> block.
+— Keep your reply to 1–3 short sentences. Warm and direct.`;
+
+  try {
+    const formatted = messages.map(m => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content || "",
+    })).filter(m => m.content.trim());
+
+    const rawReply = await callAnthropic(system, formatted, 1200);
+
+    const taskMatch = rawReply.match(/<tasks>([\s\S]*?)<\/tasks>/);
+    let updatedTasks = null;
+    let reply = rawReply.replace(/<tasks>[\s\S]*?<\/tasks>/, "").trim();
+
+    if (taskMatch) {
+      try { updatedTasks = JSON.parse(taskMatch[1].trim()); }
+      catch (e) { console.error("Task parse error:", e.message); }
+    }
+
+    res.json({ reply, updatedTasks });
+  } catch (e) {
+    console.error("Braindump chat error:", e.message);
+    res.status(500).json({ reply: "I'm here. What would you like to adjust?", updatedTasks: null });
+  }
+});
+
 // ── AI companion chat ────────────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   const { messages } = req.body;
