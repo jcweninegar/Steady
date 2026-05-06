@@ -52,7 +52,7 @@ Rules:
 - home = cleaning, chores, house stuff; close = kids, family, relationships
 - DO NOT guess or infer urgency or due dates. Only set urgency/dueDate when the user explicitly says a time (e.g. "today", "by Friday", "urgent", "tomorrow", "next week").
 - If timing is not explicitly stated: urgency = "someday", dueDate = null
-- clarifying_question: if there is ONE genuinely unclear thing about this task (what exactly, when, or how urgent), set a short natural question. Ask for AT MOST one question total across ALL tasks — pick the most important one, leave the rest null.
+- clarifying_question: if 2 or more tasks have no explicit timing, set ONE broad open-ended question on the FIRST task only (null on all others) inviting the user to add any due dates or context. Vary the phrasing naturally — e.g. "Do any of these have deadlines?", "Anything time-sensitive in here?", "Want to add timing or context to any of these?", "Any of these need to happen by a certain date?". If all tasks already have timing, or there's only 1 task, set null on all.
 
 Return this exact JSON:
 {
@@ -85,6 +85,39 @@ Return this exact JSON:
       captures: [],
       acknowledgment: "Got it.",
     });
+  }
+});
+
+// ── TASK REFINEMENT (clarifying answer → updated tasks) ──────────────────────
+app.post("/api/refine", async (req, res) => {
+  const { tasks, captures, question, answer } = req.body;
+  const today = new Date().toLocaleDateString("en-CA");
+
+  const system = `You are a JSON-only task refinement engine. Return ONLY valid JSON — no markdown, no explanation.`;
+
+  const prompt = `The user was asked: "${question}"
+User's answer: "${answer}"
+Today's date: ${today}
+
+Original tasks:
+${JSON.stringify(tasks, null, 2)}
+
+Update the tasks based on the user's answer. Apply any due dates, urgency, or details they mentioned. Convert relative dates ("tomorrow", "Friday", "next week") to YYYY-MM-DD. Only update fields the answer addresses; leave all other fields unchanged.
+
+Return ONLY this JSON:
+{
+  "tasks": [/* same array structure with updates applied */],
+  "acknowledgment": "warm 1-sentence confirmation of what was noted (e.g. 'Got it — I've added the deadline.')"
+}`;
+
+  try {
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 900);
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const result = JSON.parse(clean);
+    res.json({ tasks: result.tasks || tasks, acknowledgment: result.acknowledgment || "Got it." });
+  } catch (e) {
+    console.error("Refine error:", e.message);
+    res.json({ tasks, acknowledgment: "Got it." });
   }
 });
 

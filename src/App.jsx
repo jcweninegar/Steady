@@ -253,6 +253,16 @@ async function callClaude(messages) {
 }
 
 // ── BRAIN DUMP EXTRACTION ────────────────────────────────────────────────────
+async function refineWithAnswer(tasks, captures, question, answer) {
+  const res = await fetch("/api/refine", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ tasks, captures, question, answer }),
+  });
+  if (!res.ok) throw new Error("Refine failed");
+  return res.json();
+}
+
 async function extractFromDump(rawText) {
   try {
     const response = await fetch("/api/extract", {
@@ -308,6 +318,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addedSet, setAddedSet] = useState(new Set());
+  const [pendingClarification, setPendingClarification] = useState(null);
   const bottomRef = useRef(null);
   const hasRun = useRef(false);
 
@@ -335,6 +346,9 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
           tasks, captures, clarifyingQuestion,
         }]);
         setLoading(false);
+        if(clarifyingQuestion) {
+          setPendingClarification({ question: clarifyingQuestion, tasks, captures });
+        }
         if(onCapture) captures.forEach(c => onCapture(c));
       } else {
         sendToAPI(prevMsgs);
@@ -342,8 +356,39 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     }).catch(() => sendToAPI(prevMsgs));
   };
 
+  const handleClarifyResponse = (answer) => {
+    const { question, tasks: pendingTasks, captures: pendingCaptures } = pendingClarification;
+    const userMsg = {role:"user", text:answer, id:Date.now()};
+    setMessages(p=>[...p, userMsg]);
+    setPendingClarification(null);
+    setLoading(true);
+    refineWithAnswer(pendingTasks, pendingCaptures, question, answer)
+      .then(result => {
+        const refined = result.tasks || pendingTasks;
+        setMessages(p => {
+          let lastDumpIdx = -1;
+          for (let i = p.length - 1; i >= 0; i--) {
+            if (p[i].isDump) { lastDumpIdx = i; break; }
+          }
+          const updated = lastDumpIdx >= 0
+            ? p.map((m, i) => i === lastDumpIdx ? { ...m, tasks: refined, clarifyingQuestion: null } : m)
+            : p;
+          return [...updated, {role:"ai", text: result.acknowledgment || "Got it, noted."}];
+        });
+        setLoading(false);
+      })
+      .catch(() => {
+        setMessages(p=>[...p,{role:"ai",text:"Got it."}]);
+        setLoading(false);
+      });
+  };
+
   const sendMessage = (text) => {
     if(!text.trim() || loading) return;
+    if(pendingClarification) {
+      handleClarifyResponse(text.trim());
+      return;
+    }
     const userMsg = {role:"user", text:text.trim(), id:Date.now()};
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
@@ -1076,8 +1121,7 @@ const MOCK_TASKS=[
 const formatDue=(d)=>{ if(!d)return"";const date=new Date(d);const today=new Date();today.setHours(0,0,0,0);const diff=Math.round((date-today)/(1000*60*60*24));if(diff<0)return"Overdue";if(diff===0)return"Today";if(diff===1)return"Tomorrow";return date.toLocaleDateString([],{month:"short",day:"numeric"}); };
 const dueColor=(d,T)=>{ if(!d)return T.muted;const date=new Date(d);const today=new Date();today.setHours(0,0,0,0);const diff=Math.round((date-today)/(1000*60*60*24));if(diff<0)return T.red;if(diff<=1)return T.accent;return T.muted; };
 
-function PlanContent({T}) {
-  const [tasks,setTasks]=useState(MOCK_TASKS);
+function PlanContent({T, tasks, setTasks}) {
   const [big3,setBig3]=useState([null,null,null]);
   const [showUpNext,setShowUpNext]=useState(false);
   const [selected,setSelected]=useState(null);
@@ -1502,11 +1546,24 @@ export default function App() {
         {/* ── SHEETS ── */}
         <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
           {activeSheet==="chat"&&<ChatContent ref={chatContentRef} T={T} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])} onAddTasks={aiTasks=>{
-            setTasks(p=>[...p,...aiTasks.map(t=>({id:Date.now()+Math.random(),text:t.label,area:t.area||"work",type:"todo",estimate:t.duration?(t.duration+" min"):"30 min",hard:t.urgency==="now",subtasks:[]}))]);
+            const now=Date.now();
+            setTasks(p=>[...p,...aiTasks.map((t,i)=>({
+              id: now+i,
+              label: t.label,
+              area: t.area||"work",
+              hours: "0h",
+              mins: t.duration ? Math.round(t.duration)+"m" : "30m",
+              dueDate: t.dueDate||"",
+              desc: t.note||"",
+              subtasks: [],
+              done: false,
+              notes: "",
+              urgency: t.urgency||"soon",
+            }))]);
           }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
-          {activeSheet==="plan"&&<PlanContent T={T}/>}
+          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
