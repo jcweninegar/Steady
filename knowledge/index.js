@@ -1,13 +1,13 @@
 import { adhdCore } from "./adhd-core.js";
+import { wellbeingScience } from "./wellbeing-science.js";
+import { philosophyGoodLife } from "./philosophy-good-life.js";
 
 // Add future knowledge files here — they'll be auto-included in all AI system prompts.
-// Example: import { productivity } from "./productivity.js";
-// Example: import { habits } from "./habits.js";
 
 const sections = [
   adhdCore,
-  // productivity,
-  // habits,
+  wellbeingScience,
+  philosophyGoodLife,
 ];
 
 export const knowledgeBase = sections.join("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");

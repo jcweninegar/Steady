@@ -63,6 +63,83 @@ Caveat: Evidence is stronger for subclinical ADHD traits than clinical diagnosis
 Additional self-reported strengths (qualitative evidence): high energy and drive, empathy, cognitive flexibility, adventurousness, humor. Stolte et al. (2024) found quantitative support for the association between ADHD and cognitive flexibility.
 Caveat: Evidence base is small, samples skew toward successful adults. Do not overstate these as universal.
 
+━━━ DODSON'S FOUR MOTIVATORS (why the ADHD brain engages or doesn't) ━━━
+Source: William Dodson, MD — clinical psychiatrist, ADHD specialist, ADDitude Medical Review Panel.
+Framework derived from clinical work with thousands of ADHD adults. Widely cited in ADHD practitioner
+literature. Note: Dodson's work is primarily clinical rather than large-scale RCT-based; it is included
+because it is the most coherent explanatory model for a phenomenon all major researchers acknowledge:
+the ADHD brain is not motivated by importance, deadlines, or future rewards the way neurotypical brains
+are.
+
+The ADHD brain is reliably activated by exactly four things. If none of these are present, the ADHD
+brain will not reliably engage regardless of intention, willpower, or how much the person cares:
+
+1. INTEREST — Is this genuinely engaging or fascinating right now?
+   The ADHD brain has a strong interest-based nervous system. This is not preference — it is neurological.
+   The same person who cannot start a 20-minute task they know matters can spend 4 hours on something
+   they find compelling. The difference is not importance. It is interest.
+
+2. CHALLENGE — Does this require enough effort to engage the system?
+   Challenge activates the same dopaminergic circuits as interest. Tasks that are clearly beneath
+   capability feel aversive. Tasks at the edge of capability feel engaging. This maps directly onto
+   Csikszentmihalyi's flow research — the ADHD brain is particularly dependent on challenge-skill balance
+   to reach the engagement threshold.
+
+3. NOVELTY — Is this new enough to capture attention?
+   Novelty drives dopamine release in PFC circuits. This is why the ADHD brain often excels at the
+   beginning of projects (novel) and struggles at maintenance phases (routine). New tools, new systems,
+   and new approaches can reignite engagement — temporarily. This is not a character flaw; it is
+   predictable neurochemistry.
+
+4. URGENCY — Is the deadline close enough to feel real?
+   Due to time blindness, only deadlines in the immediate "now" window create neurological urgency.
+   A deadline two weeks away does not feel real to the ADHD brain until it is approximately tomorrow.
+   Self-generated urgency (accountability partners, artificial deadlines, working in public) can
+   partially substitute for naturally occurring urgency.
+
+Design implication: Tasks in steady. should be presented in ways that activate at least one of these
+four. Framing tasks as challenges, flagging urgency visually when deadlines are real, surfacing novel
+angles, and helping users connect to their genuine interest in an outcome are all activation strategies.
+The app cannot change the user's neurochemistry — but it can present information in ways that work
+with it rather than against it.
+
+━━━ REJECTION SENSITIVE DYSPHORIA (RSD) ━━━
+Source: William Dodson, MD; referenced in ADDitude Magazine clinical guidelines; cross-referenced with
+emotional dysregulation literature (Graziano et al. PLOS ONE 2023; Barkley's emotional dysregulation work).
+
+Dodson's clinical estimate: RSD affects approximately 99% of adults with ADHD.
+Definition: RSD is not ordinary sensitivity or thin skin. It is a neurological phenomenon — the
+experience of sudden, intense emotional pain triggered by perceived (not necessarily actual) rejection,
+criticism, failure, or the sense of having disappointed someone whose opinion matters.
+
+Key characteristics:
+• The emotional response is disproportionate to the trigger and feels unbearable in the moment.
+• It is driven by impaired prefrontal cortex braking on the amygdala — the same mechanism as emotional
+  dysregulation in ADHD generally (Barkley's model).
+• It is perception-based, not reality-based. A neutral comment can trigger the same response as
+  genuine rejection, if it is perceived as criticism.
+• It is extremely fast — the emotional response often occurs before conscious processing.
+• It subsides quickly compared to clinical depression, but can return immediately with the next trigger.
+• It produces two chronic adaptations in adults who experience it: people-pleasing (attempting to
+  prevent rejection by exceeding expectations) or avoidance (not attempting things where failure or
+  criticism is possible).
+
+The avoidance consequence is critical for product design: if any element of the app can trigger an
+RSD response — a broken streak, a red overdue marker, a score, a completion percentage — the user
+may stop opening the app entirely. The tool designed to help becomes a record of failure too painful
+to confront.
+
+Design rules derived from RSD:
+• No streaks. No scores. No completion percentages. Ever.
+• Overdue tasks use amber, not red, with neutral language.
+• Tasks not completed after 7 days move to a parking lot silently — they do not accumulate visibly.
+• The word "overdue" is never used. "Still here" or similar neutral language instead.
+• Hard tasks are flagged with "This one is hard to start" — naming difficulty without assigning blame.
+• No comparisons to any external standard, other users, or past performance.
+• If the user has not opened the app in 3+ days, the next open shows one soft prompt. No penalty.
+• The AI never expresses disappointment, concern about productivity, or suggestions that the user
+  should be doing more.
+
 ━━━ WHAT ACTUALLY HELPS ━━━
 
 Pharmacological (strongest evidence): Stimulants (amphetamines, methylphenidate) and atomoxetine are the most evidence-based interventions. Reduce symptoms and also reduce accidental injuries, substance abuse, and educational underachievement. Not sufficient alone — medication alone does not adequately address quality-of-life and daily functioning.
