@@ -1143,56 +1143,79 @@ const CAL_ROUTINE_DEFS = [
 const CHECK_SVG=(c)=><svg width="8" height="6" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 const CHEVRON=(c,up)=><svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{transform:up?"rotate(180deg)":"none",transition:"transform 0.2s",flexShrink:0}}><path d="M3 6l5 5 5-5" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
-function CalendarView({T, big3, routineDone, setRoutineDone, onTaskClick}) {
+function CalendarView({T, big3, setBig3, routineDone, setRoutineDone, onTaskClick}) {
   const [expanded,setExpanded]=useState({});
+  const [wbDrag,setWbDrag]=useState(null);
+  const [wbOver,setWbOver]=useState(null);
+  const nowRef=useRef(null);
   const toggle=id=>setExpanded(p=>({...p,[id]:!p[id]}));
   const focusTasks=big3.filter(Boolean);
-  const focusMins=Math.max(60,focusTasks.reduce((a,t)=>a+(parseInt(t.mins)||30),0));
+  const workMins=Math.max(60,focusTasks.reduce((a,t)=>a+(parseInt(t.mins)||30),0));
+  const durLabel=m=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+" min"; };
+  const BLOCK_MINS={morning:360,startup:540,workblock:555,shutdown:1050,evening:1140};
+  const nowMins=new Date().getHours()*60+new Date().getMinutes();
   const BLOCKS=[
     ...CAL_ROUTINE_DEFS.slice(0,2),
-    {id:"focus",label:"Focus Work",time:"9:15 AM",isFocus:true,steps:[]},
+    {id:"workblock",label:"Work Block",time:"9:15 AM",isWorkBlock:true,steps:[]},
     ...CAL_ROUTINE_DEFS.slice(2),
   ];
+  useEffect(()=>{
+    const t=setTimeout(()=>{ if(nowRef.current)nowRef.current.scrollIntoView({block:"start",behavior:"smooth"}); },200);
+    return ()=>clearTimeout(t);
+  },[]);
+  const wbDragStart=idx=>setWbDrag("wb-"+idx);
+  const wbDragOver=(e,idx)=>{ e.preventDefault();setWbOver("wb-"+idx); };
+  const wbDrop=(e,idx)=>{ e.preventDefault();if(wbDrag&&wbDrag.startsWith("wb-")){const f=parseInt(wbDrag.split("-")[1]);const n=[...big3];[n[f],n[idx]]=[n[idx],n[f]];setBig3(n);}setWbDrag(null);setWbOver(null); };
   return (
-    <div style={{position:"relative",paddingLeft:58,paddingBottom:8}}>
-      <div style={{position:"absolute",left:50,top:10,bottom:10,width:1,background:T.divider}}/>
-      {BLOCKS.map(block=>{
+    <div style={{paddingBottom:20}}>
+      {BLOCKS.map((block,bi)=>{
+        const bMins=BLOCK_MINS[block.id];
+        const nextMins=bi<BLOCKS.length-1?BLOCK_MINS[BLOCKS[bi+1].id]:Infinity;
+        const isNow=nowMins>=bMins&&nowMins<nextMins;
         const isExp=expanded[block.id];
-        const mins=block.isFocus?focusMins:block.steps.reduce((a,s)=>a+s.dur,0);
-        const minH=Math.max(44,mins*1.5);
-        const allDone=!block.isFocus&&block.steps.every(s=>routineDone[s.id]);
+        const allDone=!block.isWorkBlock&&block.steps.every(s=>routineDone[s.id]);
+        const mins=block.isWorkBlock?workMins:block.steps.reduce((a,s)=>a+s.dur,0);
         return (
-          <div key={block.id} style={{position:"relative",marginBottom:8}}>
-            <div style={{position:"absolute",left:-51,top:13,fontSize:10,color:T.muted,textAlign:"right",width:44,lineHeight:1.2}}>{block.time}</div>
-            <div style={{position:"absolute",left:-6,top:13,width:11,height:11,borderRadius:"50%",background:block.isMorning?T.accent:block.isFocus?T.accentSoft:T.surface,border:"2px solid "+T.bg,zIndex:2,boxShadow:"0 0 0 1px "+(block.isMorning?T.accent:T.border)}}/>
-            <div style={{background:T.card,borderRadius:12,border:"1px solid "+(allDone?T.divider:T.border),minHeight:minH,overflow:"hidden",opacity:allDone?0.45:1,transition:"opacity 0.3s"}}>
-              <div onClick={()=>toggle(block.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",cursor:"pointer"}}>
-                <span style={{fontSize:13,fontWeight:600,color:block.isMorning?T.accent:T.text}}>{block.label}</span>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:11,color:T.muted}}>{block.isFocus?focusTasks.length+" tasks":mins+" min"}</span>
-                  {CHEVRON(T.sub,isExp)}
+          <div key={block.id} ref={isNow?nowRef:null} style={{marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{fontSize:15,color:T.sub,fontWeight:500,letterSpacing:"-0.3px"}}>{block.time}</span>
+              {isNow&&<span style={{fontSize:10,fontWeight:700,color:T.accentText,letterSpacing:"0.5px",textTransform:"uppercase",background:T.accent,borderRadius:5,padding:"2px 7px"}}>now</span>}
+            </div>
+            <div style={{background:T.card,borderRadius:16,border:"1px solid "+(allDone?T.divider:isNow?T.accent+"60":T.border),overflow:"hidden",opacity:allDone?0.4:1,transition:"opacity 0.3s,border-color 0.3s"}}>
+              <div onClick={()=>toggle(block.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px",cursor:"pointer"}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:4}}>{block.label}</div>
+                  <div style={{fontSize:12,color:T.muted}}>{block.isWorkBlock?focusTasks.length+" tasks · "+durLabel(workMins):durLabel(mins)}</div>
                 </div>
+                {CHEVRON(T.sub,isExp)}
               </div>
               {isExp&&(
-                <div style={{borderTop:"1px solid "+T.divider,padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
-                  {!block.isFocus&&block.steps.map(s=>(
-                    <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"2px 0"}}>
-                      <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+                <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+                  {!block.isWorkBlock&&block.steps.map(s=>(
+                    <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",padding:"3px 0"}}>
+                      <div style={{width:20,height:20,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
                         {routineDone[s.id]&&CHECK_SVG(T.accentText)}
                       </div>
-                      <span style={{flex:1,fontSize:13,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                      <span style={{fontSize:10,color:T.muted}}>{s.dur} min</span>
+                      <span style={{flex:1,fontSize:14,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
+                      <span style={{fontSize:12,color:T.muted}}>{s.dur} min</span>
                     </div>
                   ))}
-                  {block.isFocus&&(focusTasks.length===0?(
-                    <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"8px 0",fontStyle:"italic"}}>No top 3 tasks — set them in Agenda.</div>
-                  ):focusTasks.map((task,i)=>(
-                    <div key={task.id} onClick={e=>{e.stopPropagation();onTaskClick&&onTaskClick(task);}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:9,cursor:"pointer"}}>
-                      <div style={{width:18,height:18,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:700,color:T.accent}}>{i+1}</span></div>
-                      <span style={{flex:1,fontSize:13,color:T.text}}>{task.label}</span>
-                      <AreaIconSVG id={task.area} size={11} color={T.sub}/>
+                  {block.isWorkBlock&&big3.map((task,idx)=>(
+                    <div key={idx} onDragOver={e=>wbDragOver(e,idx)} onDrop={e=>wbDrop(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(wbOver==="wb-"+idx?T.accent:task?T.border:T.divider),background:task?T.surface:"transparent",minHeight:46,transition:"all 0.15s"}}>
+                      {task?(
+                        <div draggable onDragStart={()=>wbDragStart(idx)} onClick={e=>{e.stopPropagation();onTaskClick&&onTaskClick(task);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
+                          <div style={{width:22,height:22,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
+                          <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
+                          <span style={{fontSize:12,color:T.muted}}>{task.hours} {task.mins}</span>
+                        </div>
+                      ):(
+                        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
+                          <div style={{width:22,height:22,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,color:T.muted}}>{idx+1}</span></div>
+                          <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Empty — drag from task list</span>
+                        </div>
+                      )}
                     </div>
-                  )))}
+                  ))}
                 </div>
               )}
             </div>
@@ -1252,66 +1275,68 @@ function PlanContent({T, tasks, setTasks}) {
       <div style={{padding:"14px 20px 0"}}>
         {planView==="agenda"?(
           <>
-            {/* Daily Routines — collapsible rows */}
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Daily Routines</div>
-              <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-                {CAL_ROUTINE_DEFS.map((r,i)=>{
-                  const isExp=routinesExp[r.id];
-                  const mins=r.steps.reduce((a,s)=>a+s.dur,0);
-                  const allDone=r.steps.every(s=>routineDone[s.id]);
-                  return (
-                    <div key={r.id} style={{borderTop:i>0?"1px solid "+T.divider:"none"}}>
-                      <div onClick={()=>setRoutinesExp(p=>({...p,[r.id]:!p[r.id]}))} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",cursor:"pointer",opacity:allDone?0.45:1,transition:"opacity 0.3s"}}>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:14,color:T.text,fontWeight:500,textDecoration:allDone?"line-through":"none"}}>{r.label}</div>
-                          <div style={{fontSize:11,color:T.muted,marginTop:1}}>{r.time} · {mins} min</div>
-                        </div>
-                        {CHEVRON(T.sub,isExp)}
+            {/* Individual day-block cards: Morning → Startup → Work Block → Shutdown → Evening */}
+            {[
+              ...CAL_ROUTINE_DEFS.slice(0,2),
+              {id:"workblock",label:"Work Block",time:"9:15 AM",isWorkBlock:true},
+              ...CAL_ROUTINE_DEFS.slice(2),
+            ].map(block=>{
+              const isExp=routinesExp[block.id];
+              const mins=block.isWorkBlock
+                ?Math.max(60,big3.filter(Boolean).reduce((a,t)=>a+(parseInt(t.mins)||30),0))
+                :block.steps.reduce((a,s)=>a+s.dur,0);
+              const h=Math.floor(mins/60),m=mins%60;
+              const durStr=h>0?`${h}h${m>0?" "+m+"m":""}`:m+" min";
+              const allDone=!block.isWorkBlock&&block.steps.every(s=>routineDone[s.id]);
+              return (
+                <div key={block.id} style={{marginBottom:10,background:T.card,borderRadius:16,border:"1px solid "+(allDone?T.divider:T.border),overflow:"hidden",opacity:allDone?0.4:1,transition:"opacity 0.3s"}}>
+                  <div onClick={()=>setRoutinesExp(p=>({...p,[block.id]:!p[block.id]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px",cursor:"pointer"}}>
+                    <div>
+                      <div style={{fontSize:16,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:4}}>{block.label}</div>
+                      <div style={{fontSize:12,color:T.muted}}>
+                        {block.isWorkBlock?big3.filter(Boolean).length+" tasks · "+durStr:block.time+" · "+durStr}
                       </div>
-                      {isExp&&(
-                        <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:6}}>
-                          {r.steps.map(s=>(
-                            <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"2px 0"}}>
-                              <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
-                                {routineDone[s.id]&&CHECK_SVG(T.accentText)}
-                              </div>
-                              <span style={{flex:1,fontSize:13,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                              <span style={{fontSize:10,color:T.muted}}>{s.dur} min</span>
+                    </div>
+                    {CHEVRON(T.sub,isExp)}
+                  </div>
+                  {isExp&&(
+                    <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+                      {!block.isWorkBlock&&block.steps.map(s=>(
+                        <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",padding:"3px 0"}}>
+                          <div style={{width:20,height:20,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+                            {routineDone[s.id]&&CHECK_SVG(T.accentText)}
+                          </div>
+                          <span style={{flex:1,fontSize:14,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
+                          <span style={{fontSize:12,color:T.muted}}>{s.dur} min</span>
+                        </div>
+                      ))}
+                      {block.isWorkBlock&&(
+                        <>
+                          {big3.map((task,idx)=>(
+                            <div key={idx} onDragOver={e=>onB3DO(e,idx)} onDrop={e=>onB3Dr(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(dragOver==="b3-"+idx?T.accent:task?T.border:T.divider),background:task?T.surface:"transparent",minHeight:46,transition:"all 0.15s"}}>
+                              {task?(
+                                <div draggable onDragStart={()=>onB3DS(idx)} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
+                                  <div style={{width:22,height:22,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
+                                  <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
+                                  <span style={{fontSize:12,color:T.muted}}>{task.hours} {task.mins}</span>
+                                  <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+                                  <button onClick={e=>{e.stopPropagation();removeFromBig3(idx);}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                                </div>
+                              ):(
+                                <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
+                                  <div style={{width:22,height:22,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,color:T.muted}}>{idx+1}</span></div>
+                                  <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Drag a task here or tap +</span>
+                                </div>
+                              )}
                             </div>
                           ))}
-                        </div>
+                        </>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Top 3 */}
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Top 3 today</div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {big3.map((task,idx)=>(
-                  <div key={idx} onDragOver={e=>onB3DO(e,idx)} onDrop={e=>onB3Dr(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(dragOver==="b3-"+idx?T.accent:task?T.border:T.divider),background:task?T.card:"transparent",minHeight:46,transition:"all 0.15s"}}>
-                    {task?(
-                      <div draggable onDragStart={()=>onB3DS(idx)} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer"}}>
-                        <div style={{width:20,height:20,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
-                        <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35}}>{task.label}</span>
-                        <span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500,flexShrink:0}}>{formatDue(task.dueDate)}</span>
-                        <button onClick={e=>{e.stopPropagation();markDone(task.id);}} title="Mark done" style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-                        <button onClick={e=>{e.stopPropagation();removeFromBig3(idx);}} title="Remove from Top 3" style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
-                      </div>
-                    ):(
-                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}>
-                        <div style={{width:20,height:20,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,color:T.muted}}>{idx+1}</span></div>
-                        <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Drag a task here or tap +</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+                  )}
+                </div>
+              );
+            })}
 
             {/* All tasks */}
             <div style={{marginBottom:16}}>
@@ -1348,7 +1373,7 @@ function PlanContent({T, tasks, setTasks}) {
             </div>
           </>
         ):(
-          <CalendarView T={T} big3={big3} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask}/>
+          <CalendarView T={T} big3={big3} setBig3={setBig3} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}}/>
