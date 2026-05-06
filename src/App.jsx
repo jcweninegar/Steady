@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useAuth } from "./lib/AuthContext";
 import AuthScreen from "./screens/AuthScreen";
 
@@ -10,6 +10,7 @@ const LIGHT = {
   shadow:"0 1px 3px rgba(0,0,0,0.05),0 4px 14px rgba(0,0,0,0.04)",
   userBg:"#1A1714", userText:"#F7F4EF", aiBg:"#FFFFFF",
   frost:"rgba(247,244,239,0.92)",
+  red:"#D94F4F", green:"#3DAA6A",
 };
 const DARK = {
   bg:"#141210", card:"#1E1B18", border:"rgba(255,255,255,0.08)", surface:"#262320",
@@ -19,7 +20,19 @@ const DARK = {
   shadow:"0 1px 3px rgba(0,0,0,0.3),0 4px 20px rgba(0,0,0,0.2)",
   userBg:"#E9B84A", userText:"#1A1714", aiBg:"#1E1B18",
   frost:"rgba(20,18,16,0.94)",
+  red:"#E06060", green:"#4DBF7A",
 };
+
+// ── LIFE AREAS DATA ───────────────────────────────────────────────────────────
+const AREAS = [
+  {id:"work",         label:"Work",                  research:"Adults who report meaningful work are 2x as likely to thrive overall.",          example:"I do focused work 3x per week and leave feeling capable.",        checkin:"Are you getting into flow at least once a week?"},
+  {id:"health",       label:"Health",                research:"Regular movement is the single strongest predictor of long-term wellbeing.",     example:"I move my body daily and sleep 7+ hours most nights.",            checkin:"Is your body getting what it needs to keep up with your mind?"},
+  {id:"close",        label:"Close relationships",   research:"People with 1-2 deep relationships are as happy as those with many.",           example:"I feel genuinely known by at least one person in my life.",      checkin:"Do the people closest to you actually know what's going on for you?"},
+  {id:"contribution", label:"Contribution",          research:"Giving time or skill to others predicts life satisfaction independent of income.",example:"I contribute something weekly — even small acts count.",          checkin:"Are you giving something back, even occasionally?"},
+  {id:"money",        label:"Money",                 research:"Financial stress is the top stressor for adults with ADHD. Stability matters more than amount.",example:"I have a system — even a rough one — for tracking what comes in and out.",checkin:"Is money stress background noise or front-of-mind?"},
+  {id:"home",         label:"Home",                  research:"Environmental order reduces cognitive load, which matters especially for ADHD brains.",example:"My home is calm enough that I can find things and think clearly.",  checkin:"Does your space support you or fight you?"},
+  {id:"meaning",      label:"Meaning",               research:"A sense of purpose buffers against anxiety and depression more than external success.",example:"I have a sense of why I'm doing what I'm doing.",               checkin:"Do you still know what you're working toward?"},
+];
 
 // ── ICONS ─────────────────────────────────────────────────────────────────────
 const SendIcon = ({c}) => <svg width="15" height="15" viewBox="0 0 18 18" fill="none"><path d="M16 9L2 2l2.5 6L2 14l12-6z" fill={c}/></svg>;
@@ -280,12 +293,18 @@ async function getLifeMapObservation(lifemapAreas, completedTasks) {
 }
 
 
-function ChatContent({T, initialPrompt, initialText, onCapture}) {
+const CAPTURE_ICONS = {
+  "calendar-event": "📅",
+  "worry": "💭",
+  "idea": "💡",
+  "observation": "👁",
+};
+const URGENCY_COLOR = (u, T) => u==="now" ? T.red : u==="soon" ? T.accent : T.muted;
+
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture}, ref) {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
-  const inputRef = useRef(null);
 
   const sendToAPI = async (msgs) => {
     setLoading(true);
@@ -293,211 +312,134 @@ function ChatContent({T, initialPrompt, initialText, onCapture}) {
       const reply = await callClaude(msgs);
       setMessages(p=>[...p,{role:"ai",text:reply}]);
     } catch(e) {
-      const last = msgs[msgs.length-1]?.text||"";
-      const fallback = AI_RESPONSES[last] || "Got it. I've captured that.";
-      setMessages(p=>[...p,{role:"ai",text:fallback}]);
+      setMessages(p=>[...p,{role:"ai",text:"Got it. I've captured that."}]);
     }
     setLoading(false);
   };
 
-  const runExtract = (text, existingMsgs) => {
+  const runExtract = (text, prevMsgs) => {
     setLoading(true);
     extractFromDump(text).then(result => {
       const tasks = result.tasks || [];
-      if(tasks.length > 0) {
-        const clarifyingTask = tasks.find(t => t.clarifying_question);
+      const captures = result.captures || [];
+      if(tasks.length > 0 || captures.length > 0) {
         setMessages(p=>[...p,{
-          role:"ai", text: result.acknowledgment || "Got it.",
-          id: Date.now()+999,
-          pendingTasks: tasks,
-          captures: result.captures||[],
-          acknowledgment: result.acknowledgment||"Got it. Here is what I found:",
-          clarifyingQuestion: clarifyingTask?clarifyingTask.clarifying_question:null,
+          role:"ai",
+          isDump: true,
+          acknowledgment: result.acknowledgment || "Got it.",
+          tasks,
+          captures,
         }]);
         setLoading(false);
+        if(onCapture) captures.forEach(c => onCapture(c));
       } else {
-        sendToAPI(existingMsgs);
+        sendToAPI(prevMsgs);
       }
-    }).catch(() => sendToAPI(existingMsgs));
+    }).catch(() => sendToAPI(prevMsgs));
   };
 
+  const sendMessage = (text) => {
+    if(!text.trim() || loading) return;
+    const userMsg = {role:"user", text: text.trim(), id: Date.now()};
+    const newMsgs = [...messages, userMsg];
+    setMessages(newMsgs);
+    runExtract(text.trim(), newMsgs);
+  };
+
+  useImperativeHandle(ref, () => ({ sendMessage }));
+
   useEffect(() => {
-    if(initialText) {
-      const userMsg = {role:"user", text:initialText, id:Date.now()};
-      setMessages([userMsg]);
-      runExtract(initialText, [userMsg]);
-      setTimeout(() => inputRef.current?.focus(), 400);
-    } else if(initialPrompt) {
-      const initMsgs = [{role:"user",text:initialPrompt}];
-      setMessages(initMsgs);
-      sendToAPI(initMsgs);
-      setTimeout(() => inputRef.current?.focus(), 100);
+    if(initialText && initialText.trim()) {
+      sendMessage(initialText);
     } else {
-      setMessages([{role:"ai",text:"What's on your mind?"}]);
-      setTimeout(() => inputRef.current?.focus(), 300);
+      setMessages([{role:"ai", text:"What's on your mind? Just dump it all — tasks, worries, ideas, anything."}]);
     }
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages, loading]);
 
-  const [taskCards, setTaskCards] = useState({});
-
-  const send = () => {
-    if(!input.trim()||loading) return;
-    const text = input.trim(); setInput("");
-    const msgId = Date.now();
-    const newMsgs = [...messages, {role:"user",text,id:msgId}];
-    setMessages(newMsgs);
-    setLoading(true);
-    extractFromDump(text).then(result => {
-      const tasks = result.tasks || [];
-      const captures = result.captures || [];
-      const clarifying = tasks.find(t => t.clarifying_question);
-
-      if(tasks.length > 0) {
-        // Build a conversational summary showing how items were sorted
-        let summary = result.acknowledgment || "Got it.";
-        summary += "\n\n";
-
-        if(tasks.length === 1) {
-          const t = tasks[0];
-          summary += "1 task — " + t.label;
-          if(t.area) summary += " (" + t.area + ")";
-          if(t.due) summary += ", due " + t.due;
-          if(t.urgency === "now") summary += " — urgent";
-          if(t.steps && t.steps.length > 0) {
-            summary += "\nSteps: " + t.steps.join(" → ");
-          }
-        } else {
-          summary += tasks.length + " tasks found:\n";
-          tasks.forEach(function(t, i) {
-            summary += "\n" + (i+1) + ". " + t.label;
-            if(t.area) summary += " — " + t.area;
-            if(t.urgency === "now") summary += " ⚡";
-            if(t.due) summary += " · " + t.due;
-            if(t.note) summary += "\n   " + t.note;
-            if(t.steps && t.steps.length > 0) {
-              summary += "\n   Steps: " + t.steps.join(" → ");
-            }
-          });
-        }
-
-        if(captures.length > 0) {
-          const captureTexts = captures.map(function(cap) { return typeof cap === "string" ? cap : (cap.text || ""); }).filter(Boolean);
-          if(captureTexts.length > 0) summary += "\n\nAlso noted: " + captureTexts.join("; ");
-        }
-
-        if(clarifying) {
-          summary += "\n\n" + clarifying.clarifying_question;
-        } else {
-          summary += "\n\nShall I add " + (tasks.length === 1 ? "this" : "these") + " to your plan?";
-        }
-
-        const aiMsgId = Date.now() + 999;
-        const clarifyingTask = tasks.find(function(t){return t.clarifying_question;});
-        setMessages(p=>[...p,{
-          role:"ai",
-          text: result.acknowledgment || "Got it.",
-          id: aiMsgId,
-          pendingTasks: tasks,
-          captures: result.captures||[],
-          acknowledgment: result.acknowledgment||"Got it. Here is what I found:",
-          clarifyingQuestion: clarifyingTask?clarifyingTask.clarifying_question:null,
-        }]);
-        setLoading(false);
-      } else {
-        // No tasks — conversational
-        sendToAPI(newMsgs);
-      }
-    }).catch(() => sendToAPI(newMsgs));
-  };
-
-  const confirmTask = (msgId, task) => {
-    setTaskCards(p=>({...p,[msgId]:"confirmed"}));
-    // In real app this would add to captures/plan
-  };
-
-  const dismissTask = (msgId) => {
-    setTaskCards(p=>({...p,[msgId]:"dismissed"}));
-  };
-
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"32px 28px 16px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-        <div style={{display:"flex",flexDirection:"column"}}>
-          {messages.map((msg,i)=>{
-            const total = messages.length;
-            const fromEnd = total - 1 - i;
-            const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.5 : Math.max(0.12, 0.5 - fromEnd*0.12);
-            const blurVal = fromEnd <= 1 ? 0 : Math.min(2.5, fromEnd*0.6);
-            return (
-              <div key={i} style={{marginBottom: msg.role==="user"?22:14, transition:"opacity 0.5s, filter 0.5s", opacity, filter:blurVal>0?`blur(${blurVal}px)`:"none"}}>
-                {msg.role==="user" ? (
-                  <div style={{fontSize:16,fontWeight:400,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,whiteSpace:"pre-wrap",paddingBottom:10,borderBottom:"1px solid "+T.divider}}>{msg.text}</div>
-                ) : (
-                  <div>
-                    {msg.pendingTasks && msg.pendingTasks.length > 0 ? (
-                      <div>
-                        <div style={{fontSize:14,color:T.text,fontFamily:"'DM Sans',sans-serif",lineHeight:1.7,marginBottom:10}}>{msg.acknowledgment||"Got it. Here is what I found:"}</div>
-                        {msg.pendingTasks.map(function(task, i) {
-                          return (
-                            <div key={i} style={{background:T.surface,borderRadius:12,padding:"10px 12px",marginBottom:8,border:"1px solid "+T.border}}>
-                              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
-                                <AreaIconSVG id={task.area||"work"} size={13} color={T.accent}/>
-                                <span style={{fontSize:10,fontWeight:700,color:T.accent,textTransform:"capitalize",letterSpacing:"0.5px"}}>{task.area||"work"}</span>
-                                {task.urgency==="now"&&<span style={{fontSize:10,fontWeight:700,color:T.red,background:"rgba(217,79,79,0.1)",padding:"1px 6px",borderRadius:8,marginLeft:2}}>Now</span>}
-                                {task.dueDate&&<span style={{fontSize:10,color:T.muted,marginLeft:"auto"}}>{task.dueDate}</span>}
-                              </div>
-                              <div style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.3,marginBottom:task.steps&&task.steps.length?5:0}}>{task.label}</div>
-                              {task.steps&&task.steps.length>0&&(
-                                <div style={{marginTop:4}}>
-                                  {task.steps.map(function(step,j){return(<div key={j} style={{display:"flex",gap:6,marginBottom:2}}><span style={{fontSize:10,color:T.accent,fontWeight:700,flexShrink:0}}>{j+1}</span><span style={{fontSize:12,color:T.sub,lineHeight:1.4}}>{step}</span></div>);})}
-                                </div>
-                              )}
-                              {task.note&&<div style={{fontSize:11,color:T.muted,fontStyle:"italic",marginTop:4,lineHeight:1.4}}>{task.note}</div>}
-                            </div>
-                          );
-                        })}
-                        {msg.captures&&msg.captures.length>0&&(
-                          <div style={{padding:"8px 12px",borderRadius:10,background:T.surface,border:"1px dashed "+T.border,marginBottom:8}}>
-                            <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:4}}>Noted</div>
-                            {msg.captures.map(function(cap,i){return(<div key={i} style={{fontSize:12,color:T.sub,lineHeight:1.5}}>{typeof cap==="string"?cap:cap.text}</div>);})}
-                          </div>
-                        )}
-                        {msg.clarifyingQuestion&&(
-                          <div style={{fontSize:14,color:T.text,fontFamily:"'Lora',serif",fontStyle:"italic",marginBottom:8,lineHeight:1.6}}>"{msg.clarifyingQuestion}"</div>
-                        )}
-                        <button onClick={function(){}} style={{width:"100%",padding:"10px",borderRadius:11,border:"none",background:T.accent,color:T.accentText,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:2}}>
-                          Add {msg.pendingTasks.length===1?"this":"these"} to plan
-                        </button>
+    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"24px 24px 16px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div style={{display:"flex",flexDirection:"column"}}>
+        {messages.map((msg,i)=>{
+          const total = messages.length;
+          const fromEnd = total - 1 - i;
+          const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.65 : Math.max(0.15, 0.65 - fromEnd*0.15);
+          const blur = fromEnd <= 1 ? 0 : Math.min(3, fromEnd*0.8);
+          return (
+            <div key={i} style={{marginBottom:20, transition:"opacity 0.4s,filter 0.4s", opacity, filter:blur?`blur(${blur}px)`:"none"}}>
+              {msg.role==="user" ? (
+                <div style={{fontSize:17,fontWeight:400,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.6,whiteSpace:"pre-wrap",paddingBottom:12,borderBottom:"1px solid "+T.divider}}>{msg.text}</div>
+              ) : msg.isDump ? (
+                <div>
+                  {/* Acknowledgment */}
+                  <div style={{fontSize:14,color:T.sub,fontFamily:"'DM Sans',sans-serif",lineHeight:1.7,marginBottom:14,fontStyle:"italic"}}>{msg.acknowledgment}</div>
+
+                  {/* All items unified */}
+                  {(msg.tasks.length + msg.captures.length) > 0 && (
+                    <div style={{marginBottom:14}}>
+                      <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:10}}>
+                        {msg.tasks.length + msg.captures.length} item{msg.tasks.length+msg.captures.length!==1?"s":""} found
                       </div>
-                    ) : (
-                      <div style={{fontSize:15,color:"#3D3A36",fontFamily:"'DM Sans',sans-serif",lineHeight:1.8,whiteSpace:"pre-wrap",paddingTop:4}}>{msg.text}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {loading&&(
-            <div style={{display:"flex",gap:5,alignItems:"center",paddingLeft:14,marginBottom:8,opacity:0.7}}>
-              {[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
+
+                      {/* Tasks */}
+                      {msg.tasks.map((task,j)=>(
+                        <div key={"t"+j} style={{display:"flex",alignItems:"flex-start",gap:12,paddingBottom:11,marginBottom:11,borderBottom:"1px solid "+T.divider}}>
+                          <div style={{width:28,height:28,borderRadius:8,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                            <AreaIconSVG id={task.area||"work"} size={13} color={T.accent}/>
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.35,marginBottom:3}}>{task.label}</div>
+                            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                              <span style={{fontSize:11,color:T.sub,textTransform:"capitalize"}}>{task.area||"work"}</span>
+                              {task.urgency&&<span style={{fontSize:11,fontWeight:600,color:URGENCY_COLOR(task.urgency,T)}}>· {task.urgency}</span>}
+                              {task.dueDate&&<span style={{fontSize:11,color:T.muted}}>· due {task.dueDate}</span>}
+                              {task.duration&&<span style={{fontSize:11,color:T.muted}}>· ~{task.duration}min</span>}
+                            </div>
+                            {task.note&&<div style={{fontSize:12,color:T.muted,marginTop:4,lineHeight:1.5,fontStyle:"italic"}}>{task.note}</div>}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Captures */}
+                      {msg.captures.map((cap,j)=>(
+                        <div key={"c"+j} style={{display:"flex",alignItems:"flex-start",gap:12,paddingBottom:11,marginBottom:11,borderBottom:j<msg.captures.length-1?"1px solid "+T.divider:"none"}}>
+                          <div style={{width:28,height:28,borderRadius:8,background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,fontSize:13}}>
+                            {CAPTURE_ICONS[cap.type]||"📌"}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,color:T.sub,lineHeight:1.45}}>{typeof cap==="string"?cap:cap.text}</div>
+                            <div style={{fontSize:11,color:T.muted,marginTop:2,textTransform:"capitalize"}}>{(cap.type||"note").replace("-"," ")}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add to plan CTA */}
+                  {msg.tasks.length > 0 && (
+                    <button style={{width:"100%",padding:"11px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",letterSpacing:"-0.2px"}}>
+                      Add {msg.tasks.length===1?"this task":"these "+msg.tasks.length+" tasks"} to plan →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{fontSize:15,color:T.sub,fontFamily:"'DM Sans',sans-serif",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{msg.text}</div>
+              )}
             </div>
-          )}
-          <div ref={bottomRef}/>
-        </div>
-      </div>
-      <div style={{flexShrink:0,padding:"8px 16px 16px",borderTop:`1px solid ${T.divider}`}}>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <div style={{flex:1,background:T.card,borderRadius:20,padding:"9px 10px 9px 14px",border:`1px solid ${T.border}`,display:"flex",alignItems:"flex-end",gap:8,boxShadow:T.shadow}}>
-            <textarea ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder="Say anything..." rows={1} style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:16,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,maxHeight:90,overflowY:"auto",resize:"none"}} onInput={e=>{e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,90)+"px";}}/>
-            {input.trim()?<button onClick={send} style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><SendIcon c={T.accentText}/></button>:<button style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><MicIcon c={T.sub}/></button>}
+          );
+        })}
+        {loading&&(
+          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:12,opacity:0.6}}>
+            {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
+            <span style={{fontSize:12,color:T.muted,marginLeft:6,fontStyle:"italic"}}>thinking...</span>
           </div>
-        </div>
+        )}
+        <div ref={bottomRef}/>
       </div>
     </div>
   );
-}
+});
 
 // ── LIFE MAP CONTENT ──────────────────────────────────────────────────────────
 
@@ -516,18 +458,7 @@ const MOCK_CAPTURES = [
 
 
 function LifeMapContent({T}) {
-
-
   const STATUS_OPTS = ["Yes","Getting there","Not yet","Had it, lost it"];
-
-const MOCK_CAPTURES = [
-  {id:1,text:"Follow up with client on proposal",area:"work",type:"todo",estimate:"30 min",hard:false,subtasks:[]},
-  {id:2,text:"Soccer practice Wednesday 5pm",area:"close",type:"calendar",estimate:"90 min",hard:false,subtasks:[]},
-  {id:3,text:"Pay lease renewal",area:"money",type:"todo",estimate:"20 min",hard:true,subtasks:[]},
-  {id:4,text:"Call mom back",area:"close",type:"todo",estimate:"10 min",hard:false,subtasks:[]},
-  {id:5,text:"I want to read more this year",area:"fun",type:"parking",estimate:"30 min",hard:false,subtasks:[]},
-  {id:6,text:"Feeling anxious about the budget this month",area:"money",type:"parking",estimate:"15 min",hard:true,subtasks:[]},
-];
 
 
 
@@ -1428,6 +1359,7 @@ export default function App() {
   const [tasks,setTasks]=useState(MOCK_TASKS);
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
+  const chatContentRef=useRef(null);
   const T=dark?DARK:LIGHT;
 
   if (loading) return (
@@ -1446,18 +1378,19 @@ export default function App() {
 
   const submitChatBar=()=>{
     const text=chatBarInput.trim();
+    if(!text) { openSheet("chat",null,""); return; }
     setChatBarInput("");
-    if(text){
-      openSheet("chat",null,text);
+    if(activeSheet==="chat" && chatContentRef.current) {
+      chatContentRef.current.sendMessage(text);
     } else {
-      openSheet("chat",null,"");
+      openSheet("chat",null,text);
     }
   };
 
   const CHIPS=[
-    {label:"Brain dump",     action:()=>openSheet("chat","Brain dump")},
-    {label:"Ask me anything",action:()=>openSheet("chat","Ask me anything")},
-    {label:"Take me to my plan",action:()=>openSheet("plan")},
+    {label:"Plan",     action:()=>openSheet("plan")},
+    {label:"Life Map", action:()=>openSheet("lifemap")},
+    {label:"Journal",  action:()=>openSheet("journal")},
   ];
 
   return (
@@ -1498,7 +1431,6 @@ export default function App() {
                 value={chatBarInput}
                 onChange={e=>setChatBarInput(e.target.value)}
                 onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
-                onFocus={()=>{ if(!chatBarInput.trim()){ chatBarInputRef.current?.blur(); openSheet("chat",null,""); } }}
                 placeholder="What's on your mind..."
                 rows={1}
                 style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,resize:"none",outline:"none",maxHeight:72,overflowY:"auto"}}
@@ -1515,7 +1447,7 @@ export default function App() {
 
         {/* ── SHEETS ── */}
         <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
-          {activeSheet==="chat"&&<ChatContent T={T} initialPrompt={chatPrompt} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])}/>}
+          {activeSheet==="chat"&&<ChatContent ref={chatContentRef} T={T} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
           {activeSheet==="plan"&&<PlanContent T={T}/>}
