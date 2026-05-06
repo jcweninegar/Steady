@@ -46,14 +46,12 @@ const CheckIcon = ({c="#fff"}) => <svg width="10" height="8" viewBox="0 0 12 10"
 function Sheet({T, open, onClose, chatBarRef, children, title}) {
   const sheetRef = useRef(null);
   const [visible, setVisible] = useState(false);
-  const [sheetHeight, setSheetHeight] = useState("85vh");
   const [sheetBottom, setSheetBottom] = useState(0);
   const dragStartY = useRef(null);
 
   useEffect(() => {
     if(chatBarRef?.current) {
       const rect = chatBarRef.current.getBoundingClientRect();
-      setSheetHeight(`${rect.top}px`);
       setSheetBottom(window.innerHeight - rect.top);
     }
   }, [open]);
@@ -83,8 +81,8 @@ function Sheet({T, open, onClose, chatBarRef, children, title}) {
 
   return (
     <>
-      <div onClick={handleClose} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.22)",backdropFilter:"blur(3px)",transition:"opacity 0.3s",opacity:visible?1:0}}/>
-      <div ref={sheetRef} style={{position:"fixed",left:0,right:0,bottom:sheetBottom,height:sheetHeight,zIndex:201,background:T.frost,backdropFilter:"blur(36px) saturate(1.4)",WebkitBackdropFilter:"blur(36px) saturate(1.4)",borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:visible?"translateY(0)":"translateY(100%)",boxShadow:"0 -4px 40px rgba(0,0,0,0.14)",border:`1px solid ${T.border}`,borderBottom:"none"}}>
+      <div onClick={handleClose} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.18)",backdropFilter:"blur(2px)",transition:"opacity 0.3s",opacity:visible?1:0}}/>
+      <div ref={sheetRef} style={{position:"fixed",left:0,right:0,top:88,bottom:sheetBottom,zIndex:201,background:T.frost,backdropFilter:"blur(40px) saturate(1.6)",WebkitBackdropFilter:"blur(40px) saturate(1.6)",borderRadius:"22px 22px 0 0",display:"flex",flexDirection:"column",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:visible?"translateY(0)":"translateY(100%)",boxShadow:"0 -6px 48px rgba(0,0,0,0.16)",border:`1px solid ${T.border}`,borderBottom:"none"}}>
         {/* Handle row */}
         <div onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd} style={{flexShrink:0,height:48,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",touchAction:"none",borderBottom:`1px solid ${T.divider}`}}>
           <button onClick={handleClose} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"flex-start",background:"none",border:"none",padding:0}}>
