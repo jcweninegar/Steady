@@ -486,31 +486,35 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
       <div style={{display:"flex",flexDirection:"column"}}>
         {messages.map((msg, i) => {
           const fromEnd = messages.length - 1 - i;
-          const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.7 : Math.max(0.18, 0.7 - fromEnd*0.15);
+          const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.72 : Math.max(0.15, 0.72 - fromEnd*0.15);
           const blur = fromEnd <= 1 ? 0 : Math.min(2.5, fromEnd*0.7);
           return (
-            <div key={i} style={{marginBottom:22,transition:"opacity 0.4s,filter 0.4s",opacity,filter:blur?`blur(${blur}px)`:"none"}}>
+            <div key={i} style={{marginBottom:28,transition:"opacity 0.4s,filter 0.4s",opacity,filter:blur?`blur(${blur}px)`:"none"}}>
               {msg.role==="user" ? (
-                <div style={{fontSize:17,fontWeight:400,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.6,whiteSpace:"pre-wrap",paddingBottom:12,borderBottom:"1px solid "+T.divider}}>{msg.text}</div>
+                /* User input — quiet memo, not the headline */
+                <div style={{fontSize:13,fontWeight:400,color:T.muted,lineHeight:1.55,whiteSpace:"pre-wrap",paddingLeft:12,borderLeft:"2px solid "+T.divider,marginBottom:4}}>{msg.text}</div>
               ) : msg.isDump ? (
                 <div>
-                  <div style={{fontSize:14,color:T.sub,lineHeight:1.7,marginBottom:14,fontStyle:"italic"}}>{msg.acknowledgment}</div>
+                  {/* AI acknowledgment — primary voice, prominent */}
+                  {msg.acknowledgment&&(
+                    <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,marginBottom:18}}>{msg.acknowledgment}</div>
+                  )}
 
                   {(msg.formattedTasks.length + msg.captures.length) > 0 && (
-                    <div style={{marginBottom:8}}>
+                    <div style={{marginBottom:16,background:T.surface,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
                       {/* Tasks — auto-added, each has a trash button */}
                       {msg.formattedTasks.length > 0 && (
-                        <div style={{marginBottom:msg.captures.length>0?12:0}}>
-                          <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:8}}>
+                        <div>
+                          <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.4px",textTransform:"uppercase",padding:"11px 14px 8px"}}>
                             {msg.formattedTasks.length} task{msg.formattedTasks.length!==1?"s":""} added to plan
                           </div>
                           {msg.formattedTasks.map((task, j) => (
-                            <div key={task.id} style={{display:"flex",alignItems:"flex-start",gap:10,paddingBottom:10,marginBottom:10,borderBottom:"1px solid "+T.divider}}>
+                            <div key={task.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 14px",borderTop:"1px solid "+T.divider}}>
                               <div style={{width:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:3}}>
                                 <AreaIconSVG id={task.area||"work"} size={13} color={T.muted}/>
                               </div>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:14,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.35,marginBottom:2}}>{task.label}</div>
+                                <div style={{fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35,marginBottom:2}}>{task.label}</div>
                                 <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
                                   <span style={{fontSize:11,color:T.muted,textTransform:"capitalize"}}>{task.area}</span>
                                   {task.urgency&&task.urgency!=="someday"&&<span style={{fontSize:11,fontWeight:600,color:URGENCY_COLOR(task.urgency,T)}}>· {task.urgency}</span>}
@@ -520,7 +524,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
                               </div>
                               <button
                                 onClick={()=>{ onRemoveTask&&onRemoveTask(task.id); setMessages(p=>p.map((m,mi)=>mi!==i?m:{...m,formattedTasks:m.formattedTasks.filter(t=>t.id!==task.id)})); }}
-                                style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",flexShrink:0,opacity:0.45,marginTop:2,lineHeight:1}}
+                                style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",flexShrink:0,opacity:0.4,marginTop:2,lineHeight:1}}
                                 title="Remove this task"
                               >
                                 <TrashIcon c={T.sub}/>
@@ -532,10 +536,10 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
 
                       {/* Captures */}
                       {msg.captures.length > 0 && (
-                        <div>
-                          <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:8}}>{msg.captures.length} capture{msg.captures.length!==1?"s":""}</div>
+                        <div style={{borderTop:msg.formattedTasks.length>0?"1px solid "+T.divider:"none"}}>
+                          <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",padding:"11px 14px 8px"}}>{msg.captures.length} capture{msg.captures.length!==1?"s":""}</div>
                           {msg.captures.map((cap, j) => (
-                            <div key={"c"+j} style={{display:"flex",alignItems:"flex-start",gap:10,paddingBottom:j<msg.captures.length-1?10:0,marginBottom:j<msg.captures.length-1?10:0,borderBottom:j<msg.captures.length-1?"1px solid "+T.divider:"none"}}>
+                            <div key={"c"+j} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 14px",borderTop:"1px solid "+T.divider}}>
                               <div style={{width:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:3}}>
                                 <CaptureSVG type={cap.type} color={T.muted}/>
                               </div>
@@ -550,22 +554,23 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
                     </div>
                   )}
 
-                  {/* Clarifying question */}
+                  {/* Clarifying / follow-up question — most prominent element */}
                   {msg.clarifyingQuestion && (
-                    <div style={{fontSize:14,color:T.sub,fontFamily:"'Lora',serif",fontStyle:"italic",lineHeight:1.6,paddingTop:10,borderTop:"1px solid "+T.divider}}>
+                    <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65}}>
                       {msg.clarifyingQuestion}
                     </div>
                   )}
 
-                  {/* Ongoing conversation hint */}
+                  {/* Post-extraction conversation hint */}
                   {!msg.clarifyingQuestion && hasExtracted && i===messages.length-1 && (
-                    <div style={{fontSize:12,color:T.muted,fontStyle:"italic",marginTop:6}}>
-                      Chat below to refine any of these — fix details, add dates, combine tasks, or ask anything.
+                    <div style={{fontSize:13,color:T.muted,lineHeight:1.55,marginTop:4}}>
+                      Fix details, add dates, or ask anything.
                     </div>
                   )}
                 </div>
               ) : (
-                <div style={{fontSize:15,color:T.sub,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{msg.text}</div>
+                /* Regular AI reply — primary, prominent */
+                <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,whiteSpace:"pre-wrap"}}>{msg.text}</div>
               )}
             </div>
           );
