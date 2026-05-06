@@ -14,12 +14,14 @@ ADHD support platform — a calming AI-powered home screen for brain dumps, task
 - Pure inline styles (no CSS framework)
 
 ## Where things live
-- `src/App.jsx` — main app shell (~1750 lines); all screens inline
+- `src/App.jsx` — main app shell (~1930 lines); all screens inline
 - `src/main.jsx` — React entry + AuthProvider wrapper
 - `src/lib/supabase.js` — Supabase client
 - `src/lib/AuthContext.jsx` — auth state, signIn/signOut, devBypass
 - `src/screens/AuthScreen.jsx` — login UI (Google OAuth + magic link)
-- `server.js` — Express AI proxy: /api/extract, /api/refine, /api/chat, /api/journal, /api/top3
+- `server.js` — Express AI proxy: /api/extract, /api/refine, /api/braindump-chat, /api/chat, /api/journal, /api/top3
+- `knowledge/index.js` — imports all knowledge modules, exports combined `knowledgeBase` string
+- `knowledge/adhd-core.js` — ADHD literature review knowledge base (distilled from 25 peer-reviewed sources)
 - `scripts/migrate.js` — DB migration runner
 - `vite.config.js` — Vite config (host 0.0.0.0, port 5000, /api proxy → 3001)
 
