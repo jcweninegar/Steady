@@ -1127,129 +1127,156 @@ const formatDue=(d)=>{ if(!d)return"";const date=new Date(d);const today=new Dat
 const dueColor=(d,T)=>{ if(!d)return T.muted;const date=new Date(d);const today=new Date();today.setHours(0,0,0,0);const diff=Math.round((date-today)/(1000*60*60*24));if(diff<0)return T.red;if(diff<=1)return T.accent;return T.muted; };
 
 const CAL_ROUTINE_DEFS = [
-  {id:"morning", label:"Morning Routine", time:"6:00 AM", isMorning:true, steps:[
+  {id:"morning", label:"Morning Routine", time:"6:00 AM", h:6, m:0, isMorning:true, steps:[
     {id:"m1",text:"Medication",dur:2},{id:"m2",text:"Morning review",dur:5},{id:"m3",text:"Movement",dur:20},
   ]},
-  {id:"startup", label:"Startup", time:"9:00 AM", steps:[
+  {id:"startup", label:"Startup", time:"9:00 AM", h:9, m:0, steps:[
     {id:"st1",text:"Review Top 3",dur:5},{id:"st2",text:"Set intention",dur:3},{id:"st3",text:"Clear open loops",dur:5},
   ]},
-  {id:"shutdown", label:"Shutdown", time:"5:30 PM", steps:[
+  {id:"shutdown", label:"Shutdown", time:"5:30 PM", h:17, m:30, steps:[
     {id:"sh1",text:"Capture open loops",dur:5},{id:"sh2",text:"Prep tomorrow",dur:5},
   ]},
-  {id:"evening", label:"Evening", time:"7:00 PM", steps:[
+  {id:"evening", label:"Evening", time:"7:00 PM", h:19, m:0, steps:[
     {id:"e1",text:"Decompress / family time",dur:30},{id:"e2",text:"Bedtime prep",dur:15},
   ]},
 ];
 const CHECK_SVG=(c)=><svg width="8" height="6" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 const CHEVRON=(c,up)=><svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{transform:up?"rotate(180deg)":"none",transition:"transform 0.2s",flexShrink:0}}><path d="M3 6l5 5 5-5" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
-function CalendarView({T, big3, setBig3, routineDone, setRoutineDone, onTaskClick}) {
-  const [expanded,setExpanded]=useState({});
-  const [wbDrag,setWbDrag]=useState(null);
-  const [wbOver,setWbOver]=useState(null);
-  const nowRef=useRef(null);
-  const toggle=id=>setExpanded(p=>({...p,[id]:!p[id]}));
-  const focusTasks=big3.filter(Boolean);
-  const workMins=Math.max(60,focusTasks.reduce((a,t)=>a+(parseInt(t.mins)||30),0));
-  const durLabel=m=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+" min"; };
-  const BLOCK_MINS={morning:360,startup:540,workblock:555,shutdown:1050,evening:1140};
-  const nowMins=new Date().getHours()*60+new Date().getMinutes();
-  const BLOCKS=[
-    ...CAL_ROUTINE_DEFS.slice(0,2),
-    {id:"workblock",label:"Work Block",time:"9:15 AM",isWorkBlock:true,steps:[]},
-    ...CAL_ROUTINE_DEFS.slice(2),
-  ];
+function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins}) {
+  const PX_HR=80;
+  const PX_MIN=PX_HR/60;
+  const START_H=6;
+  const END_H=22;
+  const scrollRef=useRef(null);
+  const [isResizing,setIsResizing]=useState(false);
+  const resizeOrigin=useRef(null);
+  const now=new Date();
+  const nowPx=(now.getHours()-START_H)*PX_HR+now.getMinutes()*PX_MIN;
+  const toY=(h,m)=>(h-START_H)*PX_HR+m*PX_MIN;
+  const toH=(mins)=>Math.max(36,mins*PX_MIN);
+  const durStr=(m)=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+"m"; };
+  const fmtH=(h)=>h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
+  const hours=Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
+
   useEffect(()=>{
-    const t=setTimeout(()=>{ if(nowRef.current)nowRef.current.scrollIntoView({block:"start",behavior:"smooth"}); },200);
+    const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },120);
     return ()=>clearTimeout(t);
   },[]);
-  const wbDragStart=idx=>setWbDrag("wb-"+idx);
-  const wbDragOver=(e,idx)=>{ e.preventDefault();setWbOver("wb-"+idx); };
-  const wbDrop=(e,idx)=>{ e.preventDefault();if(wbDrag&&wbDrag.startsWith("wb-")){const f=parseInt(wbDrag.split("-")[1]);const n=[...big3];[n[f],n[idx]]=[n[idx],n[f]];setBig3(n);}setWbDrag(null);setWbOver(null); };
+
+  useEffect(()=>{
+    if(!isResizing)return;
+    const onMove=(e)=>{
+      const cy=e.touches?e.touches[0].clientY:e.clientY;
+      const dy=cy-resizeOrigin.current.y;
+      const snapped=Math.round((dy/PX_MIN)/15)*15;
+      setWorkBlockMins(Math.max(15,Math.min(480,resizeOrigin.current.mins+snapped)));
+    };
+    const onUp=()=>setIsResizing(false);
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    window.addEventListener("touchmove",onMove,{passive:false});
+    window.addEventListener("touchend",onUp);
+    return ()=>{ window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onUp); };
+  },[isResizing]);
+
+  const startResize=(e)=>{ e.preventDefault();e.stopPropagation();const cy=e.touches?e.touches[0].clientY:e.clientY;resizeOrigin.current={y:cy,mins:workBlockMins};setIsResizing(true); };
+
+  const wbTop=toY(9,15);
+  const wbHeight=toH(workBlockMins);
+  const TOTAL_PX=(END_H-START_H)*PX_HR+80;
+
   return (
-    <div style={{paddingBottom:20}}>
-      {BLOCKS.map((block,bi)=>{
-        const bMins=BLOCK_MINS[block.id];
-        const nextMins=bi<BLOCKS.length-1?BLOCK_MINS[BLOCKS[bi+1].id]:Infinity;
-        const isNow=nowMins>=bMins&&nowMins<nextMins;
-        const isExp=expanded[block.id];
-        const allDone=!block.isWorkBlock&&block.steps.every(s=>routineDone[s.id]);
-        const mins=block.isWorkBlock?workMins:block.steps.reduce((a,s)=>a+s.dur,0);
-        return (
-          <div key={block.id} ref={isNow?nowRef:null} style={{marginBottom:16}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{fontSize:15,color:T.sub,fontWeight:500,letterSpacing:"-0.3px"}}>{block.time}</span>
-              {isNow&&<span style={{fontSize:10,fontWeight:700,color:T.accentText,letterSpacing:"0.5px",textTransform:"uppercase",background:T.accent,borderRadius:5,padding:"2px 7px"}}>now</span>}
+    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch"}}>
+      <div style={{position:"relative",height:TOTAL_PX,paddingBottom:60}}>
+        {/* Hour lines + labels */}
+        {hours.map(h=>{
+          const y=toY(h,0);
+          return (
+            <div key={h} style={{position:"absolute",top:y,left:0,right:0,display:"flex",alignItems:"flex-start",pointerEvents:"none"}}>
+              <span style={{position:"absolute",left:0,top:-9,fontSize:11,color:T.sub,width:50,textAlign:"right",paddingRight:10,lineHeight:1}}>{fmtH(h)}</span>
+              <div style={{position:"absolute",left:54,right:0,top:0,height:1,background:T.divider}}/>
             </div>
-            <div style={{background:T.card,borderRadius:16,border:"1px solid "+(allDone?T.divider:isNow?T.accent+"60":T.border),overflow:"hidden",opacity:allDone?0.4:1,transition:"opacity 0.3s,border-color 0.3s"}}>
-              <div onClick={()=>toggle(block.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px",cursor:"pointer"}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:4}}>{block.label}</div>
-                  <div style={{fontSize:12,color:T.muted}}>{block.isWorkBlock?focusTasks.length+" tasks · "+durLabel(workMins):durLabel(mins)}</div>
+          );
+        })}
+        {/* 30-min minor lines */}
+        {hours.slice(0,-1).map(h=>(
+          <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.35,pointerEvents:"none"}}/>
+        ))}
+
+        {/* Routine blocks */}
+        {CAL_ROUTINE_DEFS.map(rb=>{
+          const mins=rb.steps.reduce((a,s)=>a+s.dur,0);
+          const allDone=rb.steps.every(s=>routineDone[s.id]);
+          return (
+            <div key={rb.id} style={{position:"absolute",left:58,right:12,top:toY(rb.h,rb.m),height:toH(mins),background:rb.isMorning?T.accent+"22":T.card,border:"1px solid "+(rb.isMorning?T.accent+"60":T.border),borderRadius:12,overflow:"hidden",opacity:allDone?0.35:1,boxSizing:"border-box",transition:"opacity 0.3s",padding:"6px 10px"}}>
+              <div style={{fontSize:12,fontWeight:600,color:rb.isMorning?T.accent:T.text,lineHeight:1,marginBottom:2}}>{rb.label}</div>
+              <div style={{fontSize:10,color:T.muted}}>{durStr(mins)}</div>
+            </div>
+          );
+        })}
+
+        {/* Work Block — resizable */}
+        <div style={{position:"absolute",left:58,right:12,top:wbTop,height:wbHeight,background:T.accentSoft,border:"1.5px solid "+T.accent+"70",borderRadius:12,overflow:"hidden",boxSizing:"border-box",userSelect:"none"}}>
+          <div style={{padding:"8px 12px",height:"100%",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,marginBottom:3,flexShrink:0}}>Work Block</div>
+            <div style={{fontSize:11,color:T.sub,marginBottom:6,flexShrink:0}}>{workTasks.length} tasks · {durStr(workBlockMins)}</div>
+            <div style={{flex:1,overflow:"hidden"}}>
+              {workTasks.slice(0,5).map((t,i)=>(
+                <div key={t.id} onClick={()=>onTaskClick&&onTaskClick(t)} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}>
+                  {i<3&&<span style={{fontSize:10,fontWeight:700,color:T.accent,width:12,flexShrink:0}}>{i+1}</span>}
+                  {i>=3&&<span style={{fontSize:10,color:T.muted,width:12,flexShrink:0}}>·</span>}
+                  <span style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.label}</span>
                 </div>
-                {CHEVRON(T.sub,isExp)}
-              </div>
-              {isExp&&(
-                <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
-                  {!block.isWorkBlock&&block.steps.map(s=>(
-                    <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",padding:"3px 0"}}>
-                      <div style={{width:20,height:20,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
-                        {routineDone[s.id]&&CHECK_SVG(T.accentText)}
-                      </div>
-                      <span style={{flex:1,fontSize:14,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                      <span style={{fontSize:12,color:T.muted}}>{s.dur} min</span>
-                    </div>
-                  ))}
-                  {block.isWorkBlock&&big3.map((task,idx)=>(
-                    <div key={idx} onDragOver={e=>wbDragOver(e,idx)} onDrop={e=>wbDrop(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(wbOver==="wb-"+idx?T.accent:task?T.border:T.divider),background:task?T.surface:"transparent",minHeight:46,transition:"all 0.15s"}}>
-                      {task?(
-                        <div draggable onDragStart={()=>wbDragStart(idx)} onClick={e=>{e.stopPropagation();onTaskClick&&onTaskClick(task);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
-                          <div style={{width:22,height:22,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
-                          <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
-                          <span style={{fontSize:12,color:T.muted}}>{task.hours} {task.mins}</span>
-                        </div>
-                      ):(
-                        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
-                          <div style={{width:22,height:22,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,color:T.muted}}>{idx+1}</span></div>
-                          <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Empty — drag from task list</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
+              {workTasks.length>5&&<div style={{fontSize:10,color:T.muted,paddingLeft:17}}>+{workTasks.length-5} more</div>}
             </div>
           </div>
-        );
-      })}
+          {/* Resize handle */}
+          <div onMouseDown={startResize} onTouchStart={startResize} style={{position:"absolute",bottom:0,left:0,right:0,height:18,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"30)",touchAction:"none"}}>
+            <div style={{width:28,height:3,background:T.accent+"90",borderRadius:2}}/>
+          </div>
+        </div>
+
+        {/* Now line */}
+        {now.getHours()>=START_H&&now.getHours()<END_H&&(
+          <div style={{position:"absolute",top:nowPx,left:54,right:0,height:1.5,background:T.accent,zIndex:10,pointerEvents:"none"}}>
+            <div style={{position:"absolute",left:-5,top:-3.5,width:9,height:9,borderRadius:"50%",background:T.accent}}/>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 function PlanContent({T, tasks, setTasks}) {
   const [planView,setPlanView]=useState("agenda");
-  const [big3,setBig3]=useState([null,null,null]);
+  const [workTasks,setWorkTasks]=useState([]);
+  const [workBlockMins,setWorkBlockMins]=useState(90);
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
   const [dragId,setDragId]=useState(null);
-  const [dragOver,setDragOver]=useState(null);
+  const [wDragIdx,setWDragIdx]=useState(null);
+  const [wDragOver,setWDragOver]=useState(null);
   const [routineDone,setRoutineDone]=useState({});
   const [routinesExp,setRoutinesExp]=useState({});
-  const big3Ids=big3.filter(Boolean).map(t=>t.id);
-  const listTasks=tasks.filter(t=>!t.done&&!big3Ids.includes(t.id)).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
-  const filledCount=big3.filter(Boolean).length;
-  const addToBig3=(task)=>{ const i=big3.findIndex(s=>s===null);if(i===-1)return;const n=[...big3];n[i]=task;setBig3(n); };
-  const removeFromBig3=(i)=>{ const n=[...big3];n[i]=null;setBig3(n); };
-  const markDone=(id)=>{ setTasks(p=>p.map(t=>t.id===id?{...t,done:true}:t));setBig3(p=>p.map(t=>t&&t.id===id?null:t)); };
-  const deleteTask=(id)=>{ setTasks(p=>p.filter(t=>t.id!==id));setBig3(p=>p.map(t=>t&&t.id===id?null:t)); };
+  const workIds=workTasks.map(t=>t.id);
+  const listTasks=tasks.filter(t=>!t.done&&!workIds.includes(t.id)).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
+  const addToWork=(task)=>{ if(workIds.includes(task.id))return;setWorkTasks(p=>[...p,task]); };
+  const removeFromWork=(id)=>setWorkTasks(p=>p.filter(t=>t.id!==id));
+  const markDone=(id)=>{ setTasks(p=>p.map(t=>t.id===id?{...t,done:true}:t));setWorkTasks(p=>p.filter(t=>t.id!==id)); };
+  const deleteTask=(id)=>{ setTasks(p=>p.filter(t=>t.id!==id));setWorkTasks(p=>p.filter(t=>t.id!==id)); };
   const openTask=(task)=>{ setSelected(task);setSheetOpen(true); };
-  const onB3DS=(i)=>setDragId("b3-"+i);
-  const onB3DO=(e,i)=>{ e.preventDefault();setDragOver("b3-"+i); };
-  const onB3Dr=(e,i)=>{ e.preventDefault();if(dragId&&dragId.startsWith("b3-")){const fi=parseInt(dragId.split("-")[1]);const n=[...big3];[n[fi],n[i]]=[n[i],n[fi]];setBig3(n);}else if(dragId){const task=listTasks.find(t=>String(t.id)===dragId);if(task){const n=[...big3];n[i]=task;setBig3(n);}}setDragId(null);setDragOver(null); };
   const now=new Date();
   const timeStr=now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   const dateStr=now.toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"});
-  useEffect(()=>{ if(big3.every(s=>s===null)&&tasks.filter(t=>!t.done).length>0){ suggestTop3(tasks,[],null).then(suggested=>{ if(suggested.length>0)setBig3([suggested[0]||null,suggested[1]||null,suggested[2]||null]); }).catch(()=>{}); } },[]);
+  // Work Block drag handlers (reorder within list)
+  const onWDS=(i)=>setWDragIdx(i);
+  const onWDO=(e,i)=>{ e.preventDefault();setWDragOver(i); };
+  const onWDr=(e,i)=>{ e.preventDefault();if(wDragIdx!==null&&wDragIdx!==i){const n=[...workTasks];const [item]=n.splice(wDragIdx,1);n.splice(i,0,item);setWorkTasks(n);}setWDragIdx(null);setWDragOver(null); };
+  // Drop from All Tasks onto Work Block
+  const onWBDrop=(e)=>{ e.preventDefault();if(dragId){const task=listTasks.find(t=>String(t.id)===dragId);if(task)addToWork(task);}setDragId(null); };
+  useEffect(()=>{ if(workTasks.length===0&&tasks.filter(t=>!t.done).length>0){ suggestTop3(tasks,[],null).then(suggested=>{ if(suggested.length>0)setWorkTasks(suggested.slice(0,3).filter(Boolean)); }).catch(()=>{}); } },[]);
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 20px"}}>
       {/* ── Header ── */}
@@ -1257,7 +1284,7 @@ function PlanContent({T, tasks, setTasks}) {
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
-          <div style={{height:"100%",background:T.accent,borderRadius:2,width:(filledCount===0?0:(filledCount/3)*100)+"%",transition:"width 0.4s"}}/>
+          <div style={{height:"100%",background:T.accent,borderRadius:2,width:workTasks.length===0?"0%":(Math.min(workTasks.length,3)/3*100)+"%",transition:"width 0.4s"}}/>
         </div>
         {/* Sub-nav — underline tab style */}
         <div style={{display:"flex",marginTop:14,marginLeft:-20,marginRight:-20,paddingLeft:20,paddingRight:20,borderBottom:"1px solid "+T.divider}}>
@@ -1282,9 +1309,7 @@ function PlanContent({T, tasks, setTasks}) {
               ...CAL_ROUTINE_DEFS.slice(2),
             ].map(block=>{
               const isExp=routinesExp[block.id];
-              const mins=block.isWorkBlock
-                ?Math.max(60,big3.filter(Boolean).reduce((a,t)=>a+(parseInt(t.mins)||30),0))
-                :block.steps.reduce((a,s)=>a+s.dur,0);
+              const mins=block.isWorkBlock?workBlockMins:block.steps.reduce((a,s)=>a+s.dur,0);
               const h=Math.floor(mins/60),m=mins%60;
               const durStr=h>0?`${h}h${m>0?" "+m+"m":""}`:m+" min";
               const allDone=!block.isWorkBlock&&block.steps.every(s=>routineDone[s.id]);
@@ -1294,13 +1319,15 @@ function PlanContent({T, tasks, setTasks}) {
                     <div>
                       <div style={{fontSize:16,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:4}}>{block.label}</div>
                       <div style={{fontSize:12,color:T.muted}}>
-                        {block.isWorkBlock?big3.filter(Boolean).length+" tasks · "+durStr:block.time+" · "+durStr}
+                        {block.isWorkBlock?workTasks.length+" tasks · "+durStr:block.time+" · "+durStr}
                       </div>
                     </div>
                     {CHEVRON(T.sub,isExp)}
                   </div>
                   {isExp&&(
-                    <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+                    <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:8}}
+                      onDragOver={block.isWorkBlock?(e=>e.preventDefault()):undefined}
+                      onDrop={block.isWorkBlock?onWBDrop:undefined}>
                       {!block.isWorkBlock&&block.steps.map(s=>(
                         <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",padding:"3px 0"}}>
                           <div style={{width:20,height:20,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
@@ -1312,22 +1339,26 @@ function PlanContent({T, tasks, setTasks}) {
                       ))}
                       {block.isWorkBlock&&(
                         <>
-                          {big3.map((task,idx)=>(
-                            <div key={idx} onDragOver={e=>onB3DO(e,idx)} onDrop={e=>onB3Dr(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(dragOver==="b3-"+idx?T.accent:task?T.border:T.divider),background:task?T.surface:"transparent",minHeight:46,transition:"all 0.15s"}}>
-                              {task?(
-                                <div draggable onDragStart={()=>onB3DS(idx)} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
-                                  <div style={{width:22,height:22,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
-                                  <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
-                                  <span style={{fontSize:12,color:T.muted}}>{task.hours} {task.mins}</span>
-                                  <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-                                  <button onClick={e=>{e.stopPropagation();removeFromBig3(idx);}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                          {workTasks.length===0&&(
+                            <div style={{textAlign:"center",padding:"16px 0",color:T.muted,fontSize:13,fontStyle:"italic",border:"1.5px dashed "+T.divider,borderRadius:10}}>
+                              Drag tasks from below, or tap +
+                            </div>
+                          )}
+                          {workTasks.map((task,idx)=>(
+                            <div key={task.id} draggable
+                              onDragStart={()=>onWDS(idx)}
+                              onDragOver={e=>onWDO(e,idx)}
+                              onDrop={e=>onWDr(e,idx)}
+                              style={{borderRadius:12,border:"1.5px solid "+(wDragOver===idx?T.accent:T.border),background:wDragIdx===idx?T.surface+"80":T.surface,transition:"all 0.12s",cursor:"grab"}}>
+                              <div onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
+                                <div style={{width:22,height:22,borderRadius:"50%",background:idx<3?T.accentSoft:T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {idx<3?<span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span>:<span style={{fontSize:11,color:T.sub}}>·</span>}
                                 </div>
-                              ):(
-                                <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
-                                  <div style={{width:22,height:22,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:12,color:T.muted}}>{idx+1}</span></div>
-                                  <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Drag a task here or tap +</span>
-                                </div>
-                              )}
+                                <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
+                                <span style={{fontSize:12,color:T.muted,flexShrink:0}}>{task.hours} {task.mins}</span>
+                                <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginLeft:4}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+                                <button onClick={e=>{e.stopPropagation();removeFromWork(task.id);}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                              </div>
                             </div>
                           ))}
                         </>
@@ -1338,7 +1369,7 @@ function PlanContent({T, tasks, setTasks}) {
               );
             })}
 
-            {/* All tasks */}
+            {/* All tasks — drag to Work Block or tap + to add */}
             <div style={{marginBottom:16}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>All tasks</div>
@@ -1346,34 +1377,31 @@ function PlanContent({T, tasks, setTasks}) {
               </div>
               {listTasks.length===0?(
                 <div style={{textAlign:"center",padding:"24px 20px",color:T.muted,fontSize:13,fontStyle:"italic"}}>
-                  {tasks.filter(t=>!t.done).length===0?"No tasks yet — brain dump to add some.":"All tasks assigned to Top 3."}
+                  {tasks.filter(t=>!t.done).length===0?"No tasks yet — brain dump to add some.":"All tasks added to Work Block."}
                 </div>
               ):(
                 <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-                  {listTasks.map((task,i)=>{
-                    const canAdd=big3.some(s=>s===null);
-                    return (
-                      <div key={task.id} draggable onDragStart={()=>setDragId(String(task.id))} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",cursor:"pointer",opacity:dragId===String(task.id)?0.4:1}}>
-                        <AreaIconSVG id={task.area} size={12} color={T.sub}/>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:14,color:T.text,marginBottom:1}}>{task.label}</div>
-                          {task.dueDate&&<div style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</div>}
-                        </div>
-                        <button title="Add to Top 3" onClick={e=>{e.stopPropagation();canAdd&&addToBig3(task);}} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+(canAdd?T.accent:T.divider),background:canAdd?T.accentSoft:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:canAdd?"pointer":"default",transition:"all 0.2s"}}>
-                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={canAdd?T.accent:T.sub} strokeWidth="2" strokeLinecap="round"/></svg>
-                        </button>
-                        <button title="Delete task" onClick={e=>{e.stopPropagation();deleteTask(task.id);}} style={{width:26,height:26,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0,marginLeft:2}}>
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
+                  {listTasks.map((task,i)=>(
+                    <div key={task.id} draggable onDragStart={()=>setDragId(String(task.id))} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",cursor:"pointer",opacity:dragId===String(task.id)?0.4:1}}>
+                      <AreaIconSVG id={task.area} size={12} color={T.sub}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,color:T.text,marginBottom:1}}>{task.label}</div>
+                        {task.dueDate&&<div style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</div>}
                       </div>
-                    );
-                  })}
+                      <button title="Add to Work Block" onClick={e=>{e.stopPropagation();addToWork(task);}} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+T.accent,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",transition:"all 0.2s"}}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.accent} strokeWidth="2" strokeLinecap="round"/></svg>
+                      </button>
+                      <button title="Delete task" onClick={e=>{e.stopPropagation();deleteTask(task.id);}} style={{width:26,height:26,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0,marginLeft:2}}>
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           </>
         ):(
-          <CalendarView T={T} big3={big3} setBig3={setBig3} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask}/>
+          <CalendarView T={T} workTasks={workTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}}/>
