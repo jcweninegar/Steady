@@ -227,78 +227,28 @@ You know about: Brain Dump (capture everything), Plan (today's priorities, morni
 Tone: like a calm, smart friend who gets it. Not a therapist. Not a productivity guru. Just steady.`;
 
 async function callClaude(messages) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("/api/chat", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      system: SYSTEM_PROMPT,
-      messages: messages.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({
-        role: m.role === "ai" ? "assistant" : "user",
-        content: m.text
-      }))
-    })
+    body: JSON.stringify({ messages })
   });
   if(!response.ok) throw new Error("API error");
   const data = await response.json();
-  return data.content?.[0]?.text || "Got it.";
+  return data.reply || "Got it.";
 }
 
 // ── BRAIN DUMP EXTRACTION ────────────────────────────────────────────────────
 async function extractFromDump(rawText) {
-  const today = new Date().toLocaleDateString("en-CA");
-
-  const prompt = "Split this into separate items and classify each one.\n\n" +
-    "Input: " + rawText + "\n\n" +
-    "Rules:\n" +
-    "- Each sentence or clause that describes something different = separate item\n" +
-    "- Tasks = things the user needs to DO (clean, call, pay, fill out, etc)\n" +
-    "- Captures = events, worries, observations (soccer game Thursday = capture)\n" +
-    "- Area options: work, home, health, money, close, contribution, meaning\n" +
-    "- home = cleaning, chores, house stuff\n" +
-    "- close = kids, family, relationships\n" +
-    "- Infer due date from context. Today = " + today + "\n\n" +
-    "Return this exact JSON structure and nothing else:\n" +
-    "{\n" +
-    "  \"tasks\": [{\n" +
-    "    \"label\": \"short action phrase\",\n" +
-    "    \"area\": \"area id\",\n" +
-    "    \"urgency\": \"now or soon or someday\",\n" +
-    "    \"dueDate\": \"YYYY-MM-DD or null\",\n" +
-    "    \"duration\": 30,\n" +
-    "    \"steps\": [],\n" +
-    "    \"clarifying_question\": null,\n" +
-    "    \"note\": null\n" +
-    "  }],\n" +
-    "  \"captures\": [{\n" +
-    "    \"text\": \"the item\",\n" +
-    "    \"type\": \"calendar-event or worry or idea\"\n" +
-    "  }],\n" +
-    "  \"acknowledgment\": \"one sentence summary\"\n" +
-    "}";
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("/api/extract", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: "You are a JSON-only extraction engine. Split compound inputs into separate items. Return valid JSON only. No markdown. No explanation. No preamble.",
-        messages: [{role:"user", content: prompt}]
-      })
+      body: JSON.stringify({ text: rawText })
     });
-    const data = await response.json();
-    const raw = ((data.content && data.content[0] && data.content[0].text) || "{}").replace(/```json|```/g,"").trim();
-    const result = JSON.parse(raw);
-    // Safety check - if label equals the full input, the model didn't split
-    if(result.tasks && result.tasks.length === 1 && result.tasks[0].label === rawText) {
-      result.tasks[0].label = rawText.split(".")[0].replace(/^i (need to|have to|gotta) /i,"").trim();
-    }
-    return result;
+    if(!response.ok) throw new Error("API error");
+    return await response.json();
   } catch(e) {
-    return {tasks:[{label:rawText,area:"home",urgency:"soon",dueDate:null,duration:30,steps:[],clarifying_question:null,note:null}],captures:[],acknowledgment:"Got it."};
+    return {tasks:[{label:rawText,area:"work",urgency:"soon",dueDate:null,duration:30,steps:[],clarifying_question:null,note:null}],captures:[],acknowledgment:"Got it."};
   }
 }
 
@@ -309,37 +259,14 @@ async function extractFromDump(rawText) {
 async function suggestTop3(tasks, lifemapAreas, dayRating) {
   const available = tasks.filter(t => !t.done).slice(0, 20);
   if (available.length === 0) return [];
-
-  const areaStatus = lifemapAreas
-    .map(a => a.id + ": " + (a.status || "not set"))
-    .join(", ");
-
-  const taskList = available.map((t, i) =>
-    i + ": " + t.label + " (" + t.area + ", due: " + (t.dueDate || "no date") + ")"
-  ).join("\n");
-
-  const prompt = "Pick the best 3 tasks for today from this list:\n" + taskList +
-    "\n\nLife area status: " + areaStatus +
-    "\nYesterday rating: " + (dayRating || "unknown") +
-    "\n\nReturn ONLY a JSON array of 3 task indices from the list above, like: [0, 3, 7]" +
-    "\nPrioritize: overdue tasks, neglected life areas, tasks marked urgent.";
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("/api/top3", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 100,
-        system: "You are a prioritization engine. Return only a JSON array of 3 numbers. No explanation.",
-        messages: [{role: "user", content: prompt}]
-      })
+      body: JSON.stringify({ tasks: available, lifeAreas: lifemapAreas, yesterdayRating: dayRating })
     });
-    const data = await response.json();
-    const raw = data.content?.[0]?.text || "[0,1,2]";
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const indices = JSON.parse(clean);
-    return indices.map(i => available[i]).filter(Boolean);
+    const data = await res.json();
+    return (data.indices || [0,1,2]).map(i => available[i]).filter(Boolean);
   } catch(e) {
     return available.slice(0, 3);
   }
@@ -347,33 +274,7 @@ async function suggestTop3(tasks, lifemapAreas, dayRating) {
 
 // ── LIFE MAP GAP OBSERVATION ──────────────────────────────────────────────────
 async function getLifeMapObservation(lifemapAreas, completedTasks) {
-  const areaActivity = lifemapAreas.map(a => {
-    const count = completedTasks.filter(t => t.area === a.id).length;
-    return a.label + ": " + count + " tasks completed, status: " + (a.status || "not set");
-  }).join("; ");
-
-  const prompt = "Based on this life area activity today: " + areaActivity +
-    "\nWrite ONE short honest observation (under 15 words) about what the data shows. " +
-    "Be direct, warm, not preachy. Examples: " +
-    "\"Work is getting attention. Relationships have not moved in a while.\" " +
-    "or \"Three areas moving today. That is a good day.\"";
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 80,
-        system: "You are steady., an ADHD support app. Return only the observation sentence. No quotes around it.",
-        messages: [{role: "user", content: prompt}]
-      })
-    });
-    const data = await response.json();
-    return data.content?.[0]?.text?.trim() || "You are moving. Keep the thread.";
-  } catch(e) {
-    return "You are moving. Keep the thread.";
-  }
+  return "You are moving. Keep the thread.";
 }
 
 
@@ -1407,11 +1308,10 @@ function JournalScreen({T, captures, tasks}) {
   ];
   const runGenerate=()=>{
     setGenerating(true);
-    const captureText=(captures||[]).slice(0,10).map(function(cap){return cap.text;}).join(", ")||"No captures today";
-    const taskText=completedTasks.map(function(t){return t.label;}).join(", ")||"No tasks completed";
-    const sys="You are writing a private journal entry for an adult with ADHD. Write in second person. 3-4 short paragraphs under 250 words. Name one emotional truth. Reference something specific. End with one quiet forward thought. Sound human.";
-    const msg="Write today journal entry. Brain dumps: "+captureText+". Completed: "+taskText+". Rating: "+(rating||"not rated");
-    fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,system:sys,messages:[{role:"user",content:msg}]})}).then(function(r){return r.json();}).then(function(data){setNarrative((data.content&&data.content[0]&&data.content[0].text)||"Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);}).catch(function(){setNarrative("Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);});
+    fetch("/api/journal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({captures,completedTasks,rating})})
+      .then(function(r){return r.json();})
+      .then(function(data){setNarrative(data.narrative||"Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);})
+      .catch(function(){setNarrative("Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);});
   };
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
