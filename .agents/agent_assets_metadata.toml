@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "nYrvyAp3VF0kIEBjNbwSX"
+uri = "file://public/icon-512.png"
+type = "image"
+title = "steady app icon"
