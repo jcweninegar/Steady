@@ -738,90 +738,6 @@ const AreaIconSVG = ({id, size=16, color="currentColor"}) => {
 const AreaIcon = AreaIconSVG;
 
 const AREA_LABELS = {work:"Work",home:"Home",health:"Health",money:"Money",close:"Close relationships",contribution:"Contribution",meaning:"Meaning"};
-// ── TASK CARDS ───────────────────────────────────────────────────────────────
-function TaskCard({T, taskData, index, total, onConfirm, onDismiss, onAnswer}) {
-  const [expanded, setExpanded] = useState(true);
-  const [name, setName] = useState(taskData.text || "");
-  const [area, setArea] = useState(taskData.area || "work");
-  const [duration, setDuration] = useState(taskData.estimate || "30 min");
-  const [answer, setAnswer] = useState("");
-  const [pickArea, setPickArea] = useState(false);
-
-  const AREAS = {work:"Work",home:"Home",health:"Health",money:"Money",close:"Close relationships",contribution:"Contribution",meaning:"Meaning"};
-
-  return (
-    <div style={{marginTop:12,background:T.card,borderRadius:16,overflow:"hidden",border:"1px solid "+T.border,boxShadow:T.shadow}}>
-      {/* Card header */}
-      <div style={{padding:"12px 14px 0"}}>
-        {total > 1 && (
-          <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>
-            Task {index+1} of {total}
-          </div>
-        )}
-        {/* Editable name */}
-        <input
-          value={name}
-          onChange={e=>setName(e.target.value)}
-          style={{width:"100%",fontSize:15,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",border:"none",background:"transparent",outline:"none",lineHeight:1.4,marginBottom:8}}
-        />
-        {/* Area + duration pills */}
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <div style={{position:"relative"}}>
-            <button onClick={()=>setPickArea(p=>!p)} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:20,border:"1px solid "+T.border,background:T.surface,fontSize:11,color:T.sub,cursor:"pointer",fontFamily:"inherit"}}>
-              <AreaIconSVG id={area} size={11} color={T.sub}/>
-              {AREAS[area]||area}
-            </button>
-            {pickArea&&(
-              <div style={{position:"absolute",bottom:32,left:0,zIndex:20,background:T.card,borderRadius:12,overflow:"hidden",border:"1px solid "+T.border,boxShadow:T.shadow,minWidth:160}}>
-                {Object.entries(AREAS).map(([id,lbl],i)=>(
-                  <button key={id} onClick={()=>{setArea(id);setPickArea(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:"none",borderTop:i>0?"1px solid "+T.divider:"none",background:area===id?T.accentSoft:"transparent",color:area===id?T.accent:T.text,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-                    <AreaIconSVG id={id} size={11} color={area===id?T.accent:T.sub}/>{lbl}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{padding:"5px 10px",borderRadius:20,border:"1px solid "+T.border,background:T.surface,fontSize:11,color:T.sub}}>{duration}</div>
-          {taskData.dueDate&&<div style={{padding:"5px 10px",borderRadius:20,border:"1px solid "+T.accent+"40",background:T.accentSoft,fontSize:11,color:T.accent}}>{taskData.dueDate}</div>}
-          {taskData.urgency==="now"&&!taskData.dueDate&&<div style={{padding:"5px 10px",borderRadius:20,border:"1px solid "+T.accent+"40",background:T.accentSoft,fontSize:11,color:T.accent}}>Tonight</div>}
-        </div>
-        {/* Steps if any */}
-        {taskData.steps&&taskData.steps.length>0&&(
-          <div style={{marginBottom:10}}>
-            {taskData.steps.map((step,i)=>(
-              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:4}}>
-                <div style={{width:16,height:16,borderRadius:"50%",border:"1px solid "+T.muted,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                  <span style={{fontSize:9,color:T.muted}}>{i+1}</span>
-                </div>
-                <div style={{fontSize:12,color:T.sub,lineHeight:1.5}}>{step}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        {/* Clarifying question */}
-        {taskData.clarifyingQuestion&&(
-          <div style={{marginBottom:10,background:T.surface,borderRadius:10,padding:"10px 12px"}}>
-            <div style={{fontSize:12,color:T.sub,marginBottom:6,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{taskData.clarifyingQuestion}</div>
-            <input
-              value={answer}
-              onChange={e=>setAnswer(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&answer.trim()) onAnswer(answer);}}
-              placeholder="Type your answer..."
-              style={{width:"100%",fontSize:13,color:T.text,border:"none",background:"transparent",outline:"none",fontFamily:"'DM Sans',sans-serif"}}
-            />
-          </div>
-        )}
-      </div>
-      {/* Action buttons */}
-      <div style={{display:"flex",borderTop:"1px solid "+T.divider}}>
-        <button onClick={()=>onConfirm({...taskData,text:name,area,clarifyingAnswer:answer})} style={{flex:1,padding:"11px",border:"none",background:T.accent,color:T.accentText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-          Add to plan
-        </button>
-        <button onClick={onDismiss} style={{width:48,padding:"11px",border:"none",borderLeft:"1px solid "+T.divider,background:"transparent",color:T.muted,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
-      </div>
-    </div>
-  );
-}
 
 function ExtractedTasksFlow({T, message, onTaskConfirmed}) {
   const [idx, setIdx] = useState(0);
@@ -1143,100 +1059,184 @@ const CAL_ROUTINE_DEFS = [
 const CHECK_SVG=(c)=><svg width="8" height="6" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 const CHEVRON=(c,up)=><svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{transform:up?"rotate(180deg)":"none",transition:"transform 0.2s",flexShrink:0}}><path d="M3 6l5 5 5-5" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
-function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins}) {
+// Reusable Card — consistent appearance everywhere a task appears
+function TaskCard({T, task, badge, onCheck, onClick, onRemove, draggable:isDrag, onDragStart, dragOver}) {
+  return (
+    <div draggable={isDrag} onDragStart={onDragStart}
+      onClick={onClick}
+      style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",background:T.surface,borderRadius:10,cursor:"pointer",border:"1.5px solid "+(dragOver?T.accent:"transparent"),transition:"border-color 0.12s",userSelect:"none"}}>
+      <div onClick={e=>{e.stopPropagation();onCheck&&onCheck();}} style={{width:20,height:20,borderRadius:"50%",border:task.done?"none":"1.5px solid "+T.sub,background:task.done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",cursor:"pointer"}}>
+        {task.done&&CHECK_SVG(T.accentText)}
+      </div>
+      {badge!==undefined&&<div style={{width:18,height:18,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:700,color:T.accent}}>{badge}</span></div>}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,color:task.done?T.sub:T.text,textDecoration:task.done?"line-through":"none",lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</div>
+        {task.dueDate&&<div style={{fontSize:10,color:T.muted,marginTop:1}}>{task.hours} {task.mins}</div>}
+      </div>
+      {onRemove&&<button onClick={e=>{e.stopPropagation();onRemove();}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>}
+    </div>
+  );
+}
+
+function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
   const PX_HR=80;
   const PX_MIN=PX_HR/60;
   const START_H=6;
   const END_H=22;
+  const TOTAL_PX=(END_H-START_H)*PX_HR;
   const scrollRef=useRef(null);
-  const [isResizing,setIsResizing]=useState(false);
-  const resizeOrigin=useRef(null);
+  const gestureRef=useRef(null);
+  const [gesture,setGesture]=useState(null);
+  const [expanded,setExpanded]=useState({});
+  const [blockOffsets,setBlockOffsets]=useState({morning:0,startup:0,workblock:0,shutdown:0,evening:0});
+
   const now=new Date();
   const nowPx=(now.getHours()-START_H)*PX_HR+now.getMinutes()*PX_MIN;
   const toY=(h,m)=>(h-START_H)*PX_HR+m*PX_MIN;
-  const toH=(mins)=>Math.max(36,mins*PX_MIN);
+  const toH=(mins)=>Math.max(44,mins*PX_MIN);
   const durStr=(m)=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+"m"; };
   const fmtH=(h)=>h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
   const hours=Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
 
   useEffect(()=>{
-    const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },120);
+    const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
     return ()=>clearTimeout(t);
   },[]);
 
   useEffect(()=>{
-    if(!isResizing)return;
+    if(!gesture)return;
     const onMove=(e)=>{
       const cy=e.touches?e.touches[0].clientY:e.clientY;
-      const dy=cy-resizeOrigin.current.y;
-      const snapped=Math.round((dy/PX_MIN)/15)*15;
-      setWorkBlockMins(Math.max(15,Math.min(480,resizeOrigin.current.mins+snapped)));
+      const g=gestureRef.current;
+      if(!g)return;
+      if(g.type==="resize"){
+        const snapped=Math.round(((cy-g.y)/PX_MIN)/15)*15;
+        setWorkBlockMins(Math.max(15,Math.min(480,g.origMins+snapped)));
+      } else if(g.type==="drag"){
+        const dMins=Math.round(((cy-g.y)/PX_MIN)/15)*15;
+        if(Math.abs(cy-g.y)>6) g.moved=true;
+        if(g.moved) setBlockOffsets(p=>({...p,[g.id]:Math.max(-g.defaultMins+15,g.orig+dMins)}));
+      }
     };
-    const onUp=()=>setIsResizing(false);
+    const onUp=()=>{ setGesture(null);gestureRef.current=null; };
     window.addEventListener("mousemove",onMove);
     window.addEventListener("mouseup",onUp);
     window.addEventListener("touchmove",onMove,{passive:false});
     window.addEventListener("touchend",onUp);
     return ()=>{ window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onUp); };
-  },[isResizing]);
+  },[gesture]);
 
-  const startResize=(e)=>{ e.preventDefault();e.stopPropagation();const cy=e.touches?e.touches[0].clientY:e.clientY;resizeOrigin.current={y:cy,mins:workBlockMins};setIsResizing(true); };
+  const startResize=(e)=>{ e.preventDefault();e.stopPropagation();const cy=e.touches?e.touches[0].clientY:e.clientY;gestureRef.current={type:"resize",y:cy,origMins:workBlockMins};setGesture("resize"); };
+  const startDrag=(e,id,defH,defM)=>{ e.preventDefault();const cy=e.touches?e.touches[0].clientY:e.clientY;gestureRef.current={type:"drag",y:cy,id,orig:blockOffsets[id]||0,defaultMins:defH*60+defM,moved:false};setGesture("drag-"+id); };
+  const toggleExp=(id)=>setExpanded(p=>({...p,[id]:!p[id]}));
 
-  const wbTop=toY(9,15);
-  const wbHeight=toH(workBlockMins);
-  const TOTAL_PX=(END_H-START_H)*PX_HR+80;
+  const getTop=(id,h,m)=>{
+    const off=blockOffsets[id]||0;
+    const total=Math.max(START_H*60,Math.min((END_H-1)*60,h*60+m+off));
+    return toY(Math.floor(total/60),total%60);
+  };
+
+  const ALL_BLOCKS=[
+    ...CAL_ROUTINE_DEFS.map(rb=>({id:rb.id,label:rb.label,h:rb.h,m:rb.m,mins:rb.steps.reduce((a,s)=>a+s.dur,0),steps:rb.steps,isRoutine:true,isMorning:!!rb.isMorning})),
+    {id:"workblock",label:"Work Block",h:9,m:15,mins:workBlockMins,isWorkBlock:true,isMorning:false},
+  ].map(b=>({...b,top:getTop(b.id,b.h,b.m)})).sort((a,b)=>a.top-b.top);
 
   return (
-    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch"}}>
-      <div style={{position:"relative",height:TOTAL_PX,paddingBottom:60}}>
+    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture!=="resize"?"grabbing":"default"}}>
+      <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto"}}>
+
         {/* Hour lines + labels */}
-        {hours.map(h=>{
-          const y=toY(h,0);
-          return (
-            <div key={h} style={{position:"absolute",top:y,left:0,right:0,display:"flex",alignItems:"flex-start",pointerEvents:"none"}}>
-              <span style={{position:"absolute",left:0,top:-9,fontSize:11,color:T.sub,width:50,textAlign:"right",paddingRight:10,lineHeight:1}}>{fmtH(h)}</span>
-              <div style={{position:"absolute",left:54,right:0,top:0,height:1,background:T.divider}}/>
-            </div>
-          );
-        })}
-        {/* 30-min minor lines */}
+        {hours.map(h=>(
+          <div key={h} style={{position:"absolute",top:toY(h,0),left:0,right:0,pointerEvents:"none"}}>
+            <span style={{position:"absolute",left:0,top:-9,fontSize:11,color:T.sub,width:50,textAlign:"right",paddingRight:10,lineHeight:1}}>{fmtH(h)}</span>
+            <div style={{position:"absolute",left:54,right:0,top:0,height:1,background:T.divider}}/>
+          </div>
+        ))}
         {hours.slice(0,-1).map(h=>(
-          <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.35,pointerEvents:"none"}}/>
+          <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.3,pointerEvents:"none"}}/>
         ))}
 
-        {/* Routine blocks */}
-        {CAL_ROUTINE_DEFS.map(rb=>{
-          const mins=rb.steps.reduce((a,s)=>a+s.dur,0);
-          const allDone=rb.steps.every(s=>routineDone[s.id]);
+        {/* Blocks — draggable, expandable, cards inside */}
+        {ALL_BLOCKS.map(block=>{
+          const isExp=expanded[block.id];
+          const isDragging=gesture==="drag-"+block.id;
+          const allDone=block.isRoutine&&block.steps.every(s=>routineDone[s.id]);
+          const blockH=block.isWorkBlock?toH(workBlockMins):toH(block.mins);
+
           return (
-            <div key={rb.id} style={{position:"absolute",left:58,right:12,top:toY(rb.h,rb.m),height:toH(mins),background:rb.isMorning?T.accent+"22":T.card,border:"1px solid "+(rb.isMorning?T.accent+"60":T.border),borderRadius:12,overflow:"hidden",opacity:allDone?0.35:1,boxSizing:"border-box",transition:"opacity 0.3s",padding:"6px 10px"}}>
-              <div style={{fontSize:12,fontWeight:600,color:rb.isMorning?T.accent:T.text,lineHeight:1,marginBottom:2}}>{rb.label}</div>
-              <div style={{fontSize:10,color:T.muted}}>{durStr(mins)}</div>
+            <div key={block.id} style={{
+              position:"absolute",left:58,right:10,top:block.top,
+              minHeight:blockH,
+              background:block.isMorning?T.accent+"20":block.isWorkBlock?T.accentSoft:T.card,
+              border:"1.5px solid "+(isDragging?T.accent:block.isMorning?T.accent+"50":block.isWorkBlock?T.accent+"55":T.border),
+              borderRadius:14,overflow:"hidden",boxSizing:"border-box",
+              opacity:allDone?0.35:1,
+              boxShadow:isDragging?"0 12px 32px rgba(0,0,0,0.22)":"none",
+              zIndex:isDragging?30:block.isWorkBlock?5:1,
+              transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
+            }}>
+              {/* Header — drag handle on left, chevron on right */}
+              <div style={{display:"flex",alignItems:"flex-start"}}>
+                {/* Drag zone */}
+                <div
+                  onMouseDown={e=>startDrag(e,block.id,block.h,block.m)}
+                  onTouchStart={e=>startDrag(e,block.id,block.h,block.m)}
+                  style={{flex:1,padding:"9px 8px 9px 12px",cursor:"grab",touchAction:"none",minHeight:blockH-18}}>
+                  <div style={{fontSize:13,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:3}}>{block.label}</div>
+                  <div style={{fontSize:10,color:T.muted,marginBottom:4}}>{block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.mins)}</div>
+                  {/* Mini card preview (collapsed) */}
+                  {!isExp&&block.isRoutine&&block.steps.map(s=>(
+                    <div key={s.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(routineDone[s.id]?T.accent:T.sub),background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,transition:"all 0.15s"}}/>
+                      <span style={{fontSize:10,color:routineDone[s.id]?T.muted:T.text,textDecoration:routineDone[s.id]?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.text}</span>
+                    </div>
+                  ))}
+                  {!isExp&&block.isWorkBlock&&workTasks.slice(0,4).map((t,i)=>(
+                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(t.done?T.accent:T.sub),background:t.done?T.accent:"transparent",flexShrink:0}}/>
+                      <span style={{fontSize:10,color:t.done?T.muted:T.text,textDecoration:t.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{i<3&&<b style={{color:T.accent,marginRight:2}}>{i+1}</b>}{t.label}</span>
+                    </div>
+                  ))}
+                  {!isExp&&block.isWorkBlock&&workTasks.length>4&&<div style={{fontSize:9,color:T.muted,marginTop:1}}>+{workTasks.length-4} more</div>}
+                </div>
+                {/* Chevron — expand/collapse only */}
+                <div onClick={()=>toggleExp(block.id)} style={{padding:"10px 12px 10px 4px",cursor:"pointer",flexShrink:0}}>
+                  {CHEVRON(block.isMorning?T.accent:T.sub,isExp)}
+                </div>
+              </div>
+
+              {/* Expanded cards */}
+              {isExp&&(
+                <div style={{padding:"2px 10px 10px",display:"flex",flexDirection:"column",gap:6}}>
+                  {block.isRoutine&&block.steps.map(s=>(
+                    <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:T.surface,borderRadius:9,cursor:"pointer"}}>
+                      <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+                        {routineDone[s.id]&&CHECK_SVG(T.accentText)}
+                      </div>
+                      <span style={{flex:1,fontSize:12,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
+                      <span style={{fontSize:10,color:T.muted,flexShrink:0}}>{s.dur}m</span>
+                    </div>
+                  ))}
+                  {block.isWorkBlock&&(workTasks.length===0?(
+                    <div style={{textAlign:"center",fontSize:12,color:T.muted,fontStyle:"italic",padding:"8px 0"}}>No tasks yet — add from Agenda</div>
+                  ):workTasks.map((task,i)=>(
+                    <TaskCard key={task.id} T={T} task={task}
+                      badge={i<3?i+1:undefined}
+                      onCheck={()=>markDone&&markDone(task.id)}
+                      onClick={()=>onTaskClick&&onTaskClick(task)}/>
+                  )))}
+                </div>
+              )}
+
+              {/* Resize handle — Work Block only */}
+              {block.isWorkBlock&&(
+                <div onMouseDown={startResize} onTouchStart={startResize} style={{position:"absolute",bottom:0,left:0,right:0,height:18,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"28)",touchAction:"none"}}>
+                  <div style={{width:28,height:3,background:T.accent+"80",borderRadius:2}}/>
+                </div>
+              )}
             </div>
           );
         })}
-
-        {/* Work Block — resizable */}
-        <div style={{position:"absolute",left:58,right:12,top:wbTop,height:wbHeight,background:T.accentSoft,border:"1.5px solid "+T.accent+"70",borderRadius:12,overflow:"hidden",boxSizing:"border-box",userSelect:"none"}}>
-          <div style={{padding:"8px 12px",height:"100%",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            <div style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,marginBottom:3,flexShrink:0}}>Work Block</div>
-            <div style={{fontSize:11,color:T.sub,marginBottom:6,flexShrink:0}}>{workTasks.length} tasks · {durStr(workBlockMins)}</div>
-            <div style={{flex:1,overflow:"hidden"}}>
-              {workTasks.slice(0,5).map((t,i)=>(
-                <div key={t.id} onClick={()=>onTaskClick&&onTaskClick(t)} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}>
-                  {i<3&&<span style={{fontSize:10,fontWeight:700,color:T.accent,width:12,flexShrink:0}}>{i+1}</span>}
-                  {i>=3&&<span style={{fontSize:10,color:T.muted,width:12,flexShrink:0}}>·</span>}
-                  <span style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.label}</span>
-                </div>
-              ))}
-              {workTasks.length>5&&<div style={{fontSize:10,color:T.muted,paddingLeft:17}}>+{workTasks.length-5} more</div>}
-            </div>
-          </div>
-          {/* Resize handle */}
-          <div onMouseDown={startResize} onTouchStart={startResize} style={{position:"absolute",bottom:0,left:0,right:0,height:18,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"30)",touchAction:"none"}}>
-            <div style={{width:28,height:3,background:T.accent+"90",borderRadius:2}}/>
-          </div>
-        </div>
 
         {/* Now line */}
         {now.getHours()>=START_H&&now.getHours()<END_H&&(
@@ -1401,7 +1401,7 @@ function PlanContent({T, tasks, setTasks}) {
             </div>
           </>
         ):(
-          <CalendarView T={T} workTasks={workTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins}/>
+          <CalendarView T={T} workTasks={workTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}}/>
