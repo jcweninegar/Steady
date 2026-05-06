@@ -34,17 +34,19 @@ export function AuthProvider({ children }) {
   }
 
   async function signInWithGoogle() {
+    const redirectTo = `${window.location.protocol}//${window.location.hostname}`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
     if (error) throw error;
   }
 
   async function signInWithMagicLink(email) {
+    const redirectTo = `${window.location.protocol}//${window.location.hostname}`;
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: redirectTo },
     });
     if (error) throw error;
   }
