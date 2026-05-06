@@ -1853,13 +1853,6 @@ export default function App() {
 
   useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
   useEffect(()=>{ try{ localStorage.setItem("steady_captures",JSON.stringify(captures)); }catch{} },[captures]);
-  useEffect(()=>{
-    const el=chatBarInputRef.current;
-    if(!el) return;
-    el.style.height="auto";
-    el.style.height=Math.min(el.scrollHeight,140)+"px";
-  },[chatBarInput]);
-
   const toggleVoice=()=>{
     if(isListening){
       recognitionRef.current?.stop();
@@ -1879,7 +1872,7 @@ export default function App() {
       setChatBarInput(t);
       if(chatBarInputRef.current){
         chatBarInputRef.current.style.height="auto";
-        chatBarInputRef.current.style.height=Math.min(chatBarInputRef.current.scrollHeight,72)+"px";
+        chatBarInputRef.current.style.height=Math.min(chatBarInputRef.current.scrollHeight,140)+"px";
       }
     };
     r.onerror=()=>setIsListening(false);
@@ -1907,9 +1900,9 @@ export default function App() {
     if(!text) { openSheet("chat",null,""); return; }
     // Stop mic if running
     if(isListening){ recognitionRef.current?.stop(); setIsListening(false); }
-    // Clear input — both state and DOM
+    // Clear input
     setChatBarInput("");
-    if(chatBarInputRef.current){ chatBarInputRef.current.value=""; chatBarInputRef.current.style.height="auto"; }
+    if(chatBarInputRef.current){ chatBarInputRef.current.style.height="auto"; }
     if(activeSheet==="chat" && chatContentRef.current) {
       chatContentRef.current.sendMessage(text);
     } else {
