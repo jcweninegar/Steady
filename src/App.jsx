@@ -288,20 +288,27 @@ async function extractFromDump(rawText) {
 
 
 
-// ── MORNING TOP 3 SUGGESTION ──────────────────────────────────────────────────
-async function suggestTop3(tasks, lifemapAreas, dayRating) {
+// ── MORNING TOP 3 SUGGESTION — the steady algorithm ──────────────────────────
+async function suggestTop3(tasks, captures, dayRating) {
   const available = tasks.filter(t => !t.done).slice(0, 20);
-  if (available.length === 0) return [];
+  if (available.length === 0) return { tasks: [], framing: {}, observation: null };
   try {
     const res = await fetch("/api/top3", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ tasks: available, lifeAreas: lifemapAreas, yesterdayRating: dayRating })
+      body: JSON.stringify({ tasks: available, captures: captures || [], dayRating: dayRating || null })
     });
     const data = await res.json();
-    return (data.indices || [0,1,2]).map(i => available[i]).filter(Boolean);
+    const picks = data.picks || [];
+    const selectedTasks = picks.map(p => available[p.index]).filter(Boolean);
+    const framing = {};
+    picks.forEach(p => {
+      const task = available[p.index];
+      if (task && p.whyToday) framing[String(task.id)] = { motivator: p.motivator, whyToday: p.whyToday };
+    });
+    return { tasks: selectedTasks.length > 0 ? selectedTasks : available.slice(0,3), framing, observation: data.observation || null };
   } catch(e) {
-    return available.slice(0, 3);
+    return { tasks: available.slice(0, 3), framing: {}, observation: null };
   }
 }
 
@@ -1425,9 +1432,11 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   );
 }
 
-function PlanContent({T, tasks, setTasks}) {
+function PlanContent({T, tasks, setTasks, captures}) {
   const [planView,setPlanView]=useState("agenda");
   const [workTasks,setWorkTasks]=useState([]);
+  const [taskFraming,setTaskFraming]=useState({});
+  const [planObservation,setPlanObservation]=useState(null);
   const [workBlockMins,setWorkBlockMins]=useState(90);
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
@@ -1452,7 +1461,15 @@ function PlanContent({T, tasks, setTasks}) {
   const onWDr=(e,i)=>{ e.preventDefault();if(wDragIdx!==null&&wDragIdx!==i){const n=[...workTasks];const [item]=n.splice(wDragIdx,1);n.splice(i,0,item);setWorkTasks(n);}setWDragIdx(null);setWDragOver(null); };
   // Drop from All Tasks onto Work Block
   const onWBDrop=(e)=>{ e.preventDefault();if(dragId){const task=listTasks.find(t=>String(t.id)===dragId);if(task)addToWork(task);}setDragId(null); };
-  useEffect(()=>{ if(workTasks.length===0&&tasks.filter(t=>!t.done).length>0){ suggestTop3(tasks,[],null).then(suggested=>{ if(suggested.length>0)setWorkTasks(suggested.slice(0,3).filter(Boolean)); }).catch(()=>{}); } },[]);
+  useEffect(()=>{
+    if(workTasks.length===0&&tasks.filter(t=>!t.done).length>0){
+      suggestTop3(tasks, captures||[], null).then(result=>{
+        if(result.tasks&&result.tasks.length>0) setWorkTasks(result.tasks.slice(0,3).filter(Boolean));
+        if(result.framing) setTaskFraming(result.framing);
+        if(result.observation) setPlanObservation(result.observation);
+      }).catch(()=>{});
+    }
+  },[]);
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 20px"}}>
       {/* ── Header ── */}
@@ -1478,6 +1495,12 @@ function PlanContent({T, tasks, setTasks}) {
       <div style={{padding:"14px 20px 0"}}>
         {planView==="agenda"?(
           <>
+            {/* Observation — shown when the algorithm has something to say */}
+            {planObservation&&(
+              <div style={{background:T.card,borderRadius:12,padding:"11px 14px",marginBottom:12,border:"1px solid "+T.border,borderLeft:"2px solid "+T.accent}}>
+                <div style={{fontSize:12,color:T.sub,fontStyle:"italic",lineHeight:1.55,fontFamily:"'Lora',serif"}}>{planObservation}</div>
+              </div>
+            )}
             {/* Individual day-block cards: Morning → Startup → Work Block → Shutdown → Evening */}
             {[
               ...CAL_ROUTINE_DEFS.slice(0,2),
@@ -1520,13 +1543,16 @@ function PlanContent({T, tasks, setTasks}) {
                               Drag tasks from below, or tap +
                             </div>
                           )}
-                          {workTasks.map((task,idx)=>(
+                          {workTasks.map((task,idx)=>{
+                            const frame=taskFraming[String(task.id)];
+                            const MOTIVATOR_ICON={urgency:"◎",challenge:"◈",interest:"◇",novelty:"◉",meaning:"◆"};
+                            return(
                             <div key={task.id} draggable
                               onDragStart={()=>onWDS(idx)}
                               onDragOver={e=>onWDO(e,idx)}
                               onDrop={e=>onWDr(e,idx)}
                               style={{borderRadius:12,border:"1.5px solid "+(wDragOver===idx?T.accent:T.border),background:wDragIdx===idx?T.surface+"80":T.surface,transition:"all 0.12s",cursor:"grab"}}>
-                              <div onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
+                              <div onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:frame?"11px 14px 6px":"11px 14px"}}>
                                 <div style={{width:22,height:22,borderRadius:"50%",background:idx<3?T.accentSoft:T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                                   {idx<3?<span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span>:<span style={{fontSize:11,color:T.sub}}>·</span>}
                                 </div>
@@ -1535,8 +1561,15 @@ function PlanContent({T, tasks, setTasks}) {
                                 <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginLeft:4}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
                                 <button onClick={e=>{e.stopPropagation();removeFromWork(task.id);}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
                               </div>
+                              {frame&&frame.whyToday&&(
+                                <div style={{display:"flex",alignItems:"center",gap:6,padding:"0 14px 10px 46px"}}>
+                                  <span style={{fontSize:10,color:T.accent,opacity:0.7}}>{MOTIVATOR_ICON[frame.motivator]||"◇"}</span>
+                                  <span style={{fontSize:11,color:T.sub,fontStyle:"italic",lineHeight:1.4}}>{frame.whyToday}</span>
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </>
                       )}
                     </div>
@@ -1914,7 +1947,7 @@ export default function App() {
           />}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
-          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks}/>}
+          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}

@@ -230,27 +230,108 @@ You understand from research that ADHD is a neurodevelopmental disorder — not 
   }
 });
 
-// ── Top 3 suggestion ─────────────────────────────────────────────────────────
+// ── Top 3 suggestion — the steady algorithm ───────────────────────────────────
 app.post("/api/top3", async (req, res) => {
-  const { tasks, lifeAreas, yesterdayRating } = req.body;
+  const { tasks, lifeAreas, captures, dayRating } = req.body;
+  const nowMs = Date.now();
   const available = (tasks || []).filter(t => !t.done).slice(0, 20);
-  if (available.length === 0) return res.json({ indices: [0, 1, 2] });
+  if (available.length === 0) return res.json({ picks: [], observation: null });
 
-  const taskList = available.map((t, i) =>
-    `${i}: ${t.label} (${t.area}, due: ${t.dueDate || "no date"}, urgency: ${t.urgency || "soon"})`
-  ).join("\n");
+  // Infer task age: task IDs are Date.now() timestamps (13-digit ms)
+  const withMeta = available.map((t, i) => {
+    const isTimestamp = typeof t.id === "number" && t.id > 1_000_000_000_000;
+    const ageDays = isTimestamp ? Math.floor((nowMs - t.id) / 86_400_000) : null;
+    return { ...t, _idx: i, _ageDays: ageDays };
+  });
 
-  const system = `You are a prioritization engine. Return ONLY a JSON array of up to 3 task indices. No explanation.`;
-  const prompt = `Pick the best 3 tasks for today:\n${taskList}\nYesterday rating: ${yesterdayRating || "unknown"}\n\nPrioritize: overdue, urgent, neglected life areas.\nReturn ONLY a JSON array like: [0, 3, 7]`;
+  // Life area task coverage — which areas have tasks, which are empty
+  const AREAS = ["work","health","close","contribution","money","home","meaning"];
+  const areaCounts = Object.fromEntries(AREAS.map(a => [a, 0]));
+  available.forEach(t => { if (areaCounts[t.area] !== undefined) areaCounts[t.area]++; });
+  const neglectedAreas = AREAS.filter(a => areaCounts[a] === 0);
+  const areaLine = lifeAreas && lifeAreas.length > 0
+    ? lifeAreas.map(la => `${la.id}: ${la.status || "not set"}`).join(", ")
+    : `No tasks in: ${neglectedAreas.join(", ") || "none"}`;
+
+  // Recent capture themes
+  const captureText = (captures || [])
+    .slice(0, 15)
+    .map(c => c.text || c.label || "")
+    .filter(Boolean)
+    .join("; ") || "none";
+
+  // Build task list with staleness signal
+  const taskList = withMeta.map(t => {
+    const age = t._ageDays !== null ? ` [${t._ageDays}d old]` : "";
+    const due = t.dueDate ? ` due:${t.dueDate}` : "";
+    return `${t._idx}: "${t.label}" — area:${t.area} urgency:${t.urgency || "soon"}${due}${age}`;
+  }).join("\n");
+
+  const todayStr = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
+
+  const system = `${knowledgeBase}
+
+━━━ THE STEADY ALGORITHM ━━━
+You are the steady. prioritization engine. Select the 3 best tasks for this user today using the algorithm below.
+
+INPUTS IN PRIORITY ORDER:
+1. Hard deadlines — anything with a due date at or near today comes first.
+2. Task staleness — tasks sitting untouched 7+ days need surfacing. Name this directly in whyToday.
+3. Life area neglect — if an important area (health, relationships, money) has nothing moving, flag it.
+4. Capture frequency — if a topic appears repeatedly in brain dumps, it belongs in the Top 3.
+5. Dodson's four motivators — assign each pick the motivator that best activates the ADHD brain for that task:
+   - "urgency": deadline is real and near
+   - "challenge": requires full focus, good for a dedicated block
+   - "interest": connects to something the user genuinely cares about
+   - "novelty": fresh action in a long-neglected area
+   - "meaning": moves something in a core life area
+6. Cognitive load balance — don't pick 3 heavy tasks. Mix at least one lighter action if possible.
+
+whyToday rules:
+- 8–12 words, plain declarative English
+- No praise, no pressure, no exclamation marks
+- Neutral and observational — describe reality, don't evaluate the person
+- Never use: overdue, should, must, failing, behind, late, disappointed
+- Good examples:
+  "Due tomorrow. This is the real window."
+  "Health hasn't had a move in a few days."
+  "Been in three brain dumps. Time to clear it."
+  "Quiet area. One action changes that."
+
+observation rules:
+- 10–15 words, one sentence
+- Warm, factual, forward-looking
+- Describes the shape of today's list — not the person's performance
+- Example: "Two areas moving today. Health is the one still waiting."
+
+Return ONLY valid JSON — no markdown, no explanation:
+{
+  "picks": [
+    {"index": 0, "motivator": "urgency", "whyToday": "..."},
+    {"index": 3, "motivator": "meaning", "whyToday": "..."},
+    {"index": 7, "motivator": "challenge", "whyToday": "..."}
+  ],
+  "observation": "..."
+}`;
+
+  const prompt = `TODAY: ${todayStr}
+YESTERDAY RATING: ${dayRating || "not recorded"}
+
+TASKS:
+${taskList}
+
+LIFE AREAS: ${areaLine}
+RECENT BRAIN DUMP CAPTURES: ${captureText}`;
 
   try {
-    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 100);
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 500);
     const clean = raw.replace(/```json|```/g, "").trim();
-    const indices = JSON.parse(clean);
-    res.json({ indices });
+    const result = JSON.parse(clean);
+    res.json(result);
   } catch (e) {
     console.error("Top3 error:", e.message);
-    res.json({ indices: [0, 1, 2] });
+    // Graceful fallback — return first 3 with no framing
+    res.json({ picks: [{index:0},{index:1},{index:2}], observation: null });
   }
 });
 
