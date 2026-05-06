@@ -1,6 +1,11 @@
 import express from "express";
 import cors from "cors";
 import { knowledgeBase } from "./knowledge/index.js";
+import { fileURLToPath } from "url";
+import path from "path";
+import { existsSync } from "fs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
@@ -382,5 +387,12 @@ RECENT BRAIN DUMP CAPTURES: ${captureText}`;
   }
 });
 
-const PORT = process.env.API_PORT || 3001;
+// Serve built frontend in production
+const distPath = path.join(__dirname, "dist");
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+}
+
+const PORT = process.env.PORT || process.env.API_PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => console.log(`steady. API running on port ${PORT}`));
