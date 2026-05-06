@@ -1905,8 +1905,11 @@ export default function App() {
   const submitChatBar=()=>{
     const text=chatBarInput.trim();
     if(!text) { openSheet("chat",null,""); return; }
+    // Stop mic if running
+    if(isListening){ recognitionRef.current?.stop(); setIsListening(false); }
+    // Clear input — both state and DOM
     setChatBarInput("");
-    if(chatBarInputRef.current){ chatBarInputRef.current.style.height="auto"; }
+    if(chatBarInputRef.current){ chatBarInputRef.current.value=""; chatBarInputRef.current.style.height="auto"; }
     if(activeSheet==="chat" && chatContentRef.current) {
       chatContentRef.current.sendMessage(text);
     } else {
