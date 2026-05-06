@@ -34,12 +34,14 @@ function Sheet({T, open, onClose, chatBarRef, children, title}) {
   const sheetRef = useRef(null);
   const [visible, setVisible] = useState(false);
   const [sheetHeight, setSheetHeight] = useState("85vh");
+  const [sheetBottom, setSheetBottom] = useState(0);
   const dragStartY = useRef(null);
 
   useEffect(() => {
     if(chatBarRef?.current) {
       const rect = chatBarRef.current.getBoundingClientRect();
       setSheetHeight(`${rect.top}px`);
+      setSheetBottom(window.innerHeight - rect.top);
     }
   }, [open]);
 
@@ -69,7 +71,7 @@ function Sheet({T, open, onClose, chatBarRef, children, title}) {
   return (
     <>
       <div onClick={handleClose} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.22)",backdropFilter:"blur(3px)",transition:"opacity 0.3s",opacity:visible?1:0}}/>
-      <div ref={sheetRef} style={{position:"fixed",left:0,right:0,bottom:0,height:sheetHeight,zIndex:201,background:T.frost,backdropFilter:"blur(36px) saturate(1.4)",WebkitBackdropFilter:"blur(36px) saturate(1.4)",borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:visible?"translateY(0)":"translateY(100%)",boxShadow:"0 -4px 40px rgba(0,0,0,0.14)",border:`1px solid ${T.border}`,borderBottom:"none"}}>
+      <div ref={sheetRef} style={{position:"fixed",left:0,right:0,bottom:sheetBottom,height:sheetHeight,zIndex:201,background:T.frost,backdropFilter:"blur(36px) saturate(1.4)",WebkitBackdropFilter:"blur(36px) saturate(1.4)",borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:visible?"translateY(0)":"translateY(100%)",boxShadow:"0 -4px 40px rgba(0,0,0,0.14)",border:`1px solid ${T.border}`,borderBottom:"none"}}>
         {/* Handle row */}
         <div onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd} style={{flexShrink:0,height:48,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",touchAction:"none",borderBottom:`1px solid ${T.divider}`}}>
           <button onClick={handleClose} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"flex-start",background:"none",border:"none",padding:0}}>
@@ -278,7 +280,7 @@ async function getLifeMapObservation(lifemapAreas, completedTasks) {
 }
 
 
-function ChatContent({T, initialPrompt}) {
+function ChatContent({T, initialPrompt, initialText, onCapture}) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -291,7 +293,6 @@ function ChatContent({T, initialPrompt}) {
       const reply = await callClaude(msgs);
       setMessages(p=>[...p,{role:"ai",text:reply}]);
     } catch(e) {
-      // Fallback to local responses if API unavailable
       const last = msgs[msgs.length-1]?.text||"";
       const fallback = AI_RESPONSES[last] || "Got it. I've captured that.";
       setMessages(p=>[...p,{role:"ai",text:fallback}]);
@@ -299,8 +300,34 @@ function ChatContent({T, initialPrompt}) {
     setLoading(false);
   };
 
+  const runExtract = (text, existingMsgs) => {
+    setLoading(true);
+    extractFromDump(text).then(result => {
+      const tasks = result.tasks || [];
+      if(tasks.length > 0) {
+        const clarifyingTask = tasks.find(t => t.clarifying_question);
+        setMessages(p=>[...p,{
+          role:"ai", text: result.acknowledgment || "Got it.",
+          id: Date.now()+999,
+          pendingTasks: tasks,
+          captures: result.captures||[],
+          acknowledgment: result.acknowledgment||"Got it. Here is what I found:",
+          clarifyingQuestion: clarifyingTask?clarifyingTask.clarifying_question:null,
+        }]);
+        setLoading(false);
+      } else {
+        sendToAPI(existingMsgs);
+      }
+    }).catch(() => sendToAPI(existingMsgs));
+  };
+
   useEffect(() => {
-    if(initialPrompt) {
+    if(initialText) {
+      const userMsg = {role:"user", text:initialText, id:Date.now()};
+      setMessages([userMsg]);
+      runExtract(initialText, [userMsg]);
+      setTimeout(() => inputRef.current?.focus(), 400);
+    } else if(initialPrompt) {
       const initMsgs = [{role:"user",text:initialPrompt}];
       setMessages(initMsgs);
       sendToAPI(initMsgs);
@@ -1395,9 +1422,12 @@ export default function App() {
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
   const [chatPrompt,setChatPrompt]=useState(null);
+  const [chatInitialText,setChatInitialText]=useState("");
+  const [chatBarInput,setChatBarInput]=useState("");
   const [captures,setCaptures]=useState([]);
   const [tasks,setTasks]=useState(MOCK_TASKS);
   const chatBarRef=useRef(null);
+  const chatBarInputRef=useRef(null);
   const T=dark?DARK:LIGHT;
 
   if (loading) return (
@@ -1406,18 +1436,35 @@ export default function App() {
     </div>
   );
   if (!session && !devBypass) return <AuthScreen dark={dark} onSkip={() => setDevBypass(true)} />;
-  const openSheet=(id,prompt=null)=>{ setActiveSheet(id);if(prompt)setChatPrompt(prompt); };
-  const closeSheet=()=>{ setActiveSheet(null);setChatPrompt(null); };
-  const sheetTitle={chat:"Brain Dump",plan:"Plan",lifemap:"Life Map",journal:"Journal"};
+
+  const openSheet=(id,prompt=null,text="")=>{
+    setChatInitialText(text);
+    setActiveSheet(id);
+    if(prompt) setChatPrompt(prompt);
+  };
+  const closeSheet=()=>{ setActiveSheet(null);setChatPrompt(null);setChatInitialText(""); };
+
+  const submitChatBar=()=>{
+    const text=chatBarInput.trim();
+    setChatBarInput("");
+    if(text){
+      openSheet("chat",null,text);
+    } else {
+      openSheet("chat",null,"");
+    }
+  };
+
   const CHIPS=[
     {label:"Brain dump",     action:()=>openSheet("chat","Brain dump")},
     {label:"Ask me anything",action:()=>openSheet("chat","Ask me anything")},
     {label:"Take me to my plan",action:()=>openSheet("plan")},
   ];
+
   return (
     <>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased;}input,textarea,select{outline:none;-webkit-appearance:none;}button{-webkit-tap-highlight-color:transparent;}::-webkit-scrollbar{display:none;}@keyframes dots{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}@keyframes pulse-ring{from{transform:scale(0.9);opacity:0.8}to{transform:scale(1.4);opacity:0}}`}</style>
       <div style={{display:"flex",flexDirection:"column",height:"100vh",width:"100%",background:T.bg,fontFamily:"'DM Sans',-apple-system,sans-serif",overflow:"hidden",transition:"background 0.3s"}}>
+        {/* ── TOP BAR ── */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"44px 20px 0",flexShrink:0}}>
           <button onClick={()=>setNavOpen(true)} style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",background:"none",border:"none",padding:4}}>
             <svg width="18" height="13" viewBox="0 0 18 13" fill="none"><path d="M0 1h18M0 6.5h18M0 12h12" stroke={T.sub} strokeWidth="1.6" strokeLinecap="round"/></svg>
@@ -1425,45 +1472,61 @@ export default function App() {
           <div style={{fontSize:18,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-0.3px"}}>steady<span style={{color:T.accent}}>.</span></div>
           <button onClick={()=>setDark(d=>!d)} style={{width:34,height:34,borderRadius:"50%",border:"1px solid "+T.border,background:T.card,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",color:T.sub}}>{dark?"☀":"☾"}</button>
         </div>
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 20px"}}>
-            <div style={{textAlign:"center",marginBottom:48}}>
-              <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:12}}>What's on<br/>your mind?</div>
-              <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",width:"100%",maxWidth:280}}>
-              {CHIPS.map((chip,i)=>(
-                <button key={i} onClick={chip.action} style={{padding:"12px 0",border:"none",borderBottom:"1px solid "+T.divider,background:"transparent",color:T.sub,fontSize:14,fontWeight:400,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:0}}>
-                  <span>{chip.label}</span>
-                  <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-              ))}
-            </div>
+
+        {/* ── HOME CONTENT ── */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 100px",overflow:"hidden"}}>
+          <div style={{textAlign:"center",marginBottom:48}}>
+            <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:12}}>What's on<br/>your mind?</div>
+            <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
           </div>
-          <div ref={chatBarRef} style={{flexShrink:0,borderTop:"1px solid "+T.divider,padding:"10px 16px 28px",background:T.bg,transition:"background 0.4s"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div onClick={()=>openSheet("chat",null)} style={{flex:1,background:T.card,borderRadius:22,padding:"11px 16px",border:"1px solid "+T.border,boxShadow:T.shadow,cursor:"text",display:"flex",alignItems:"center"}}>
-                <span style={{flex:1,fontSize:15,color:T.muted,userSelect:"none"}}>What's on your mind...</span>
-                <button style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke={T.muted} strokeWidth="2" strokeLinecap="round"/></svg>
-                </button>
-              </div>
-              <MicButton T={T} onPress={()=>openSheet("chat",null)}/>
-            </div>
+          <div style={{display:"flex",flexDirection:"column",width:"100%",maxWidth:280}}>
+            {CHIPS.map((chip,i)=>(
+              <button key={i} onClick={chip.action} style={{padding:"12px 0",border:"none",borderBottom:"1px solid "+T.divider,background:"transparent",color:T.sub,fontSize:14,fontWeight:400,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:0}}>
+                <span>{chip.label}</span>
+                <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+            ))}
           </div>
-          <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
-            {activeSheet==="chat"&&<ChatContent T={T} initialPrompt={chatPrompt} onCapture={cap=>setCaptures(p=>[...p,cap])}/>}
-          </Sheet>
-          <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
-            {activeSheet==="plan"&&<PlanContent T={T}/>}
-          </Sheet>
-          <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
-            {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
-          </Sheet>
-          <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
-            {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks}/>}
-          </Sheet>
         </div>
+
+        {/* ── PERSISTENT CHAT BAR — always visible, above all sheets ── */}
+        <div ref={chatBarRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,borderTop:"1px solid "+T.divider,padding:"10px 16px 28px",background:T.bg,transition:"background 0.4s"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,background:T.card,borderRadius:22,padding:"9px 10px 9px 16px",border:"1px solid "+T.border,boxShadow:T.shadow,display:"flex",alignItems:"center",gap:8}}>
+              <textarea
+                ref={chatBarInputRef}
+                value={chatBarInput}
+                onChange={e=>setChatBarInput(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
+                onFocus={()=>{ if(!chatBarInput.trim()){ chatBarInputRef.current?.blur(); openSheet("chat",null,""); } }}
+                placeholder="What's on your mind..."
+                rows={1}
+                style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,resize:"none",outline:"none",maxHeight:72,overflowY:"auto"}}
+                onInput={e=>{e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,72)+"px";}}
+              />
+              {chatBarInput.trim()
+                ? <button onClick={submitChatBar} style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><SendIcon c={T.accentText}/></button>
+                : <button onClick={()=>openSheet("chat",null,"")} style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke={T.muted} strokeWidth="2" strokeLinecap="round"/></svg></button>
+              }
+            </div>
+            <MicButton T={T} onPress={()=>openSheet("chat",null,"")}/>
+          </div>
+        </div>
+
+        {/* ── SHEETS ── */}
+        <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
+          {activeSheet==="chat"&&<ChatContent T={T} initialPrompt={chatPrompt} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])}/>}
+        </Sheet>
+        <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
+          {activeSheet==="plan"&&<PlanContent T={T}/>}
+        </Sheet>
+        <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
+          {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
+        </Sheet>
+        <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
+          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks}/>}
+        </Sheet>
+
         <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet}/>
       </div>
     </>
