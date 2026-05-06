@@ -1078,25 +1078,40 @@ function TaskCard({T, task, badge, onCheck, onClick, onRemove, draggable:isDrag,
   );
 }
 
-function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
-  const PX_HR=80;
-  const PX_MIN=PX_HR/60;
-  const START_H=6;
-  const END_H=22;
+function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
+  const PX_HR=80, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=4;
   const TOTAL_PX=(END_H-START_H)*PX_HR;
   const scrollRef=useRef(null);
   const gestureRef=useRef(null);
   const [gesture,setGesture]=useState(null);
   const [expanded,setExpanded]=useState({});
   const [blockOffsets,setBlockOffsets]=useState({morning:0,startup:0,workblock:0,shutdown:0,evening:0});
+  const [blockDurs,setBlockDurs]=useState({}); // user-set duration overrides (minutes)
+  const [stepOrders,setStepOrders]=useState(()=>Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,rb.steps.map(s=>s.id)])));
+  const [cardDrag,setCardDrag]=useState(null); // {blockId, fromIdx, toIdx}
 
   const now=new Date();
   const nowPx=(now.getHours()-START_H)*PX_HR+now.getMinutes()*PX_MIN;
   const toY=(h,m)=>(h-START_H)*PX_HR+m*PX_MIN;
-  const toH=(mins)=>Math.max(44,mins*PX_MIN);
   const durStr=(m)=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+"m"; };
   const fmtH=(h)=>h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
   const hours=Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
+
+  const stepTotal=(rb)=>rb.steps.reduce((a,s)=>a+s.dur,0);
+  const getDur=(id,defaultMins)=>id==="workblock"?workBlockMins:(blockDurs[id]!=null?blockDurs[id]:defaultMins);
+
+  // Build blocks with resolved positions and durations
+  const buildBlocks=()=>[
+    ...CAL_ROUTINE_DEFS.map(rb=>({id:rb.id,label:rb.label,h:rb.h,m:rb.m,steps:rb.steps,defMins:stepTotal(rb),isRoutine:true,isMorning:!!rb.isMorning})),
+    {id:"workblock",label:"Work Block",h:9,m:15,steps:[],defMins:workBlockMins,isWorkBlock:true,isMorning:false},
+  ].map(b=>{
+    const off=blockOffsets[b.id]||0;
+    const startMins=Math.max(START_H*60,Math.min((END_H-0.5)*60,b.h*60+b.m+off));
+    const dur=getDur(b.id,b.defMins);
+    return {...b,startMins,dur,endMins:startMins+dur,top:toY(Math.floor(startMins/60),startMins%60)};
+  }).sort((a,b)=>a.startMins-b.startMins);
+
+  const ALL_BLOCKS=buildBlocks();
 
   useEffect(()=>{
     const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
@@ -1111,11 +1126,27 @@ function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, w
       if(!g)return;
       if(g.type==="resize"){
         const snapped=Math.round(((cy-g.y)/PX_MIN)/15)*15;
-        setWorkBlockMins(Math.max(15,Math.min(480,g.origMins+snapped)));
+        const newDur=Math.max(15,Math.min(600,g.origDur+snapped));
+        if(g.id==="workblock") setWorkBlockMins(newDur);
+        else setBlockDurs(p=>({...p,[g.id]:newDur}));
       } else if(g.type==="drag"){
-        const dMins=Math.round(((cy-g.y)/PX_MIN)/15)*15;
-        if(Math.abs(cy-g.y)>6) g.moved=true;
-        if(g.moved) setBlockOffsets(p=>({...p,[g.id]:Math.max(-g.defaultMins+15,g.orig+dMins)}));
+        const dy=cy-g.y;
+        if(Math.abs(dy)>6) g.moved=true;
+        if(!g.moved) return;
+        // Continuous proposed start (unsnapped, for smooth movement)
+        let proposed=g.defaultStart+g.origOff+dy/PX_MIN;
+        // Clamp against snapshot of other blocks — no overlap
+        for(const o of g.others){
+          if(proposed<o.endMins+GAP && proposed+g.myDur>o.startMins-GAP){
+            const otherMid=o.startMins+(o.endMins-o.startMins)/2;
+            if(proposed+g.myDur/2<otherMid) proposed=o.startMins-g.myDur-GAP;
+            else proposed=o.endMins+GAP;
+          }
+        }
+        // Snap to 15-min, clamp to grid
+        proposed=Math.round(proposed/15)*15;
+        proposed=Math.max(START_H*60,Math.min((END_H-0.5)*60-g.myDur,proposed));
+        setBlockOffsets(p=>({...p,[g.id]:proposed-g.defaultStart}));
       }
     };
     const onUp=()=>{ setGesture(null);gestureRef.current=null; };
@@ -1126,23 +1157,38 @@ function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, w
     return ()=>{ window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onUp); };
   },[gesture]);
 
-  const startResize=(e)=>{ e.preventDefault();e.stopPropagation();const cy=e.touches?e.touches[0].clientY:e.clientY;gestureRef.current={type:"resize",y:cy,origMins:workBlockMins};setGesture("resize"); };
-  const startDrag=(e,id,defH,defM)=>{ e.preventDefault();const cy=e.touches?e.touches[0].clientY:e.clientY;gestureRef.current={type:"drag",y:cy,id,orig:blockOffsets[id]||0,defaultMins:defH*60+defM,moved:false};setGesture("drag-"+id); };
+  const startResize=(e,block)=>{
+    e.preventDefault();e.stopPropagation();
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    gestureRef.current={type:"resize",y:cy,id:block.id,origDur:block.dur};
+    setGesture("resize-"+block.id);
+  };
+  const startDrag=(e,block)=>{
+    e.preventDefault();
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    gestureRef.current={
+      type:"drag",y:cy,id:block.id,
+      defaultStart:block.h*60+block.m,
+      origOff:blockOffsets[block.id]||0,
+      myDur:block.dur,
+      moved:false,
+      others:ALL_BLOCKS.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins})),
+    };
+    setGesture("drag-"+block.id);
+  };
   const toggleExp=(id)=>setExpanded(p=>({...p,[id]:!p[id]}));
 
-  const getTop=(id,h,m)=>{
-    const off=blockOffsets[id]||0;
-    const total=Math.max(START_H*60,Math.min((END_H-1)*60,h*60+m+off));
-    return toY(Math.floor(total/60),total%60);
+  const reorderCards=(blockId,from,to)=>{
+    if(from===to) return;
+    if(blockId==="workblock"){
+      setWorkTasks(p=>{ const a=[...p];const [item]=a.splice(from,1);a.splice(to,0,item);return a; });
+    } else {
+      setStepOrders(p=>{ const a=[...p[blockId]];const [item]=a.splice(from,1);a.splice(to,0,item);return {...p,[blockId]:a}; });
+    }
   };
 
-  const ALL_BLOCKS=[
-    ...CAL_ROUTINE_DEFS.map(rb=>({id:rb.id,label:rb.label,h:rb.h,m:rb.m,mins:rb.steps.reduce((a,s)=>a+s.dur,0),steps:rb.steps,isRoutine:true,isMorning:!!rb.isMorning})),
-    {id:"workblock",label:"Work Block",h:9,m:15,mins:workBlockMins,isWorkBlock:true,isMorning:false},
-  ].map(b=>({...b,top:getTop(b.id,b.h,b.m)})).sort((a,b)=>a.top-b.top);
-
   return (
-    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture!=="resize"?"grabbing":"default"}}>
+    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
       <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto"}}>
 
         {/* Hour lines + labels */}
@@ -1156,84 +1202,123 @@ function CalendarView({T, workTasks, routineDone, setRoutineDone, onTaskClick, w
           <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.3,pointerEvents:"none"}}/>
         ))}
 
-        {/* Blocks — draggable, expandable, cards inside */}
+        {/* Blocks */}
         {ALL_BLOCKS.map(block=>{
           const isExp=expanded[block.id];
           const isDragging=gesture==="drag-"+block.id;
+          const isResizing=gesture==="resize-"+block.id;
+          const blockH=Math.max(44,block.dur*PX_MIN);
           const allDone=block.isRoutine&&block.steps.every(s=>routineDone[s.id]);
-          const blockH=block.isWorkBlock?toH(workBlockMins):toH(block.mins);
+          // Overflow: step total exceeds user-constrained duration
+          const cardTotal=block.isRoutine?block.defMins:0;
+          const hasOverflow=block.isRoutine&&blockDurs[block.id]!=null&&cardTotal>blockDurs[block.id];
+          const hasCustomDur=!block.isWorkBlock&&blockDurs[block.id]!=null;
+          // Ordered steps for routine blocks
+          const orderedSteps=block.isRoutine
+            ?(stepOrders[block.id]||[]).map(sid=>block.steps.find(s=>s.id===sid)).filter(Boolean)
+            :[];
 
           return (
             <div key={block.id} style={{
               position:"absolute",left:58,right:10,top:block.top,
+              height:isExp?undefined:blockH,
               minHeight:blockH,
               background:block.isMorning?T.accent+"20":block.isWorkBlock?T.accentSoft:T.card,
-              border:"1.5px solid "+(isDragging?T.accent:block.isMorning?T.accent+"50":block.isWorkBlock?T.accent+"55":T.border),
+              border:"1.5px solid "+(hasOverflow?"#E07A5F"+(isDragging?"":"70"):isDragging||isResizing?T.accent:block.isMorning?T.accent+"50":block.isWorkBlock?T.accent+"55":T.border),
               borderRadius:14,overflow:"hidden",boxSizing:"border-box",
               opacity:allDone?0.35:1,
-              boxShadow:isDragging?"0 12px 32px rgba(0,0,0,0.22)":"none",
-              zIndex:isDragging?30:block.isWorkBlock?5:1,
+              boxShadow:isDragging?"0 12px 32px rgba(0,0,0,0.22)":hasOverflow?"0 0 0 2px #E07A5F18":"none",
+              zIndex:isDragging?30:isExp?8:block.isWorkBlock?5:1,
               transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
             }}>
-              {/* Header — drag handle on left, chevron on right */}
+              {/* Header — drag zone left, chevron right */}
               <div style={{display:"flex",alignItems:"flex-start"}}>
-                {/* Drag zone */}
                 <div
-                  onMouseDown={e=>startDrag(e,block.id,block.h,block.m)}
-                  onTouchStart={e=>startDrag(e,block.id,block.h,block.m)}
-                  style={{flex:1,padding:"9px 8px 9px 12px",cursor:"grab",touchAction:"none",minHeight:blockH-18}}>
-                  <div style={{fontSize:13,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:3}}>{block.label}</div>
-                  <div style={{fontSize:10,color:T.muted,marginBottom:4}}>{block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.mins)}</div>
-                  {/* Mini card preview (collapsed) */}
-                  {!isExp&&block.isRoutine&&block.steps.map(s=>(
+                  onMouseDown={e=>startDrag(e,block)}
+                  onTouchStart={e=>startDrag(e,block)}
+                  style={{flex:1,padding:"9px 6px 9px 12px",cursor:"grab",touchAction:"none",minHeight:isExp?undefined:blockH-20}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1}}>{block.label}</span>
+                    {hasOverflow&&<span style={{fontSize:10,background:"#E07A5F22",color:"#E07A5F",padding:"1px 6px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>over time</span>}
+                  </div>
+                  <div style={{fontSize:10,color:T.muted,marginBottom:!isExp?4:0}}>
+                    {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)+(hasCustomDur?" ·custom":"")}
+                  </div>
+                  {/* Collapsed mini card previews */}
+                  {!isExp&&block.isRoutine&&orderedSteps.map(s=>(
                     <div key={s.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(routineDone[s.id]?T.accent:T.sub),background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,transition:"all 0.15s"}}/>
+                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(routineDone[s.id]?T.accent:T.sub),background:routineDone[s.id]?T.accent:"transparent",flexShrink:0}}/>
                       <span style={{fontSize:10,color:routineDone[s.id]?T.muted:T.text,textDecoration:routineDone[s.id]?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.text}</span>
                     </div>
                   ))}
                   {!isExp&&block.isWorkBlock&&workTasks.slice(0,4).map((t,i)=>(
                     <div key={t.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
                       <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(t.done?T.accent:T.sub),background:t.done?T.accent:"transparent",flexShrink:0}}/>
-                      <span style={{fontSize:10,color:t.done?T.muted:T.text,textDecoration:t.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{i<3&&<b style={{color:T.accent,marginRight:2}}>{i+1}</b>}{t.label}</span>
+                      <span style={{fontSize:10,color:t.done?T.muted:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{i<3?`${i+1}. `:""}{t.label}</span>
                     </div>
                   ))}
-                  {!isExp&&block.isWorkBlock&&workTasks.length>4&&<div style={{fontSize:9,color:T.muted,marginTop:1}}>+{workTasks.length-4} more</div>}
+                  {!isExp&&block.isWorkBlock&&workTasks.length>4&&<div style={{fontSize:9,color:T.muted}}>+{workTasks.length-4} more</div>}
                 </div>
-                {/* Chevron — expand/collapse only */}
                 <div onClick={()=>toggleExp(block.id)} style={{padding:"10px 12px 10px 4px",cursor:"pointer",flexShrink:0}}>
                   {CHEVRON(block.isMorning?T.accent:T.sub,isExp)}
                 </div>
               </div>
 
-              {/* Expanded cards */}
+              {/* Expanded cards — drag to reorder */}
               {isExp&&(
-                <div style={{padding:"2px 10px 10px",display:"flex",flexDirection:"column",gap:6}}>
-                  {block.isRoutine&&block.steps.map(s=>(
-                    <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:T.surface,borderRadius:9,cursor:"pointer"}}>
-                      <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
-                        {routineDone[s.id]&&CHECK_SVG(T.accentText)}
+                <div style={{padding:"2px 10px 26px",display:"flex",flexDirection:"column",gap:5}}>
+                  {block.isRoutine&&orderedSteps.map((s,i)=>{
+                    const isDragOver=cardDrag?.blockId===block.id&&cardDrag?.toIdx===i;
+                    return (
+                      <div key={s.id}
+                        draggable
+                        onDragStart={e=>{e.stopPropagation();setCardDrag({blockId:block.id,fromIdx:i,toIdx:i});}}
+                        onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
+                        onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards(block.id,cardDrag.fromIdx,i);setCardDrag(null);}}
+                        onDragEnd={()=>setCardDrag(null)}
+                        onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:isDragOver?T.accentSoft:T.surface,borderRadius:9,cursor:"grab",border:"1.5px solid "+(isDragOver?T.accent:"transparent"),transition:"all 0.1s",userSelect:"none"}}>
+                        <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+                          {routineDone[s.id]&&CHECK_SVG(T.accentText)}
+                        </div>
+                        <span style={{flex:1,fontSize:12,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
+                        <span style={{fontSize:10,color:T.muted,flexShrink:0}}>{s.dur}m</span>
+                        <span style={{fontSize:13,color:T.muted,paddingLeft:2,cursor:"grab"}}>⠿</span>
                       </div>
-                      <span style={{flex:1,fontSize:12,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                      <span style={{fontSize:10,color:T.muted,flexShrink:0}}>{s.dur}m</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {block.isWorkBlock&&(workTasks.length===0?(
                     <div style={{textAlign:"center",fontSize:12,color:T.muted,fontStyle:"italic",padding:"8px 0"}}>No tasks yet — add from Agenda</div>
-                  ):workTasks.map((task,i)=>(
-                    <TaskCard key={task.id} T={T} task={task}
-                      badge={i<3?i+1:undefined}
-                      onCheck={()=>markDone&&markDone(task.id)}
-                      onClick={()=>onTaskClick&&onTaskClick(task)}/>
-                  )))}
+                  ):workTasks.map((task,i)=>{
+                    const isDragOver=cardDrag?.blockId==="workblock"&&cardDrag?.toIdx===i;
+                    return (
+                      <div key={task.id}
+                        draggable
+                        onDragStart={e=>{e.stopPropagation();setCardDrag({blockId:"workblock",fromIdx:i,toIdx:i});}}
+                        onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
+                        onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards("workblock",cardDrag.fromIdx,i);setCardDrag(null);}}
+                        onDragEnd={()=>setCardDrag(null)}
+                        onClick={e=>{e.stopPropagation();onTaskClick&&onTaskClick(task);}}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:isDragOver?T.accentSoft:T.surface,borderRadius:9,cursor:"grab",border:"1.5px solid "+(isDragOver?T.accent:"transparent"),transition:"all 0.1s",userSelect:"none"}}>
+                        <div onClick={e2=>{e2.stopPropagation();markDone&&markDone(task.id);}} style={{width:18,height:18,borderRadius:"50%",border:task.done?"none":"1.5px solid "+T.sub,background:task.done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",cursor:"pointer"}}>
+                          {task.done&&CHECK_SVG(T.accentText)}
+                        </div>
+                        {i<3&&<span style={{fontSize:9,fontWeight:700,color:T.accent,width:10,flexShrink:0}}>{i+1}</span>}
+                        <span style={{flex:1,fontSize:12,color:task.done?T.sub:T.text,textDecoration:task.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</span>
+                        <span style={{fontSize:13,color:T.muted,cursor:"grab"}}>⠿</span>
+                      </div>
+                    );
+                  }))}
                 </div>
               )}
 
-              {/* Resize handle — Work Block only */}
-              {block.isWorkBlock&&(
-                <div onMouseDown={startResize} onTouchStart={startResize} style={{position:"absolute",bottom:0,left:0,right:0,height:18,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"28)",touchAction:"none"}}>
-                  <div style={{width:28,height:3,background:T.accent+"80",borderRadius:2}}/>
-                </div>
-              )}
+              {/* Resize handle — ALL blocks */}
+              <div
+                onMouseDown={e=>startResize(e,block)}
+                onTouchStart={e=>startResize(e,block)}
+                style={{position:"absolute",bottom:0,left:0,right:0,height:20,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"18)",touchAction:"none"}}>
+                <div style={{width:28,height:3,background:T.accent+(isResizing?"cc":"55"),borderRadius:2,transition:"background 0.15s"}}/>
+              </div>
             </div>
           );
         })}
@@ -1401,7 +1486,7 @@ function PlanContent({T, tasks, setTasks}) {
             </div>
           </>
         ):(
-          <CalendarView T={T} workTasks={workTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
+          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}}/>
