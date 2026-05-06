@@ -43,3 +43,9 @@ externalPort = 3001
 deploymentTarget = "static"
 build = ["npm", "run", "build"]
 publicDir = "dist"
+
+[userenv]
+
+[userenv.shared]
+VITE_SUPABASE_URL = "https://ebgowtfbelmhkejjyssl.supabase.co"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImViZ293dGZiZWxtaGtlamp5c3NsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNTg4NjgsImV4cCI6MjA5MzYzNDg2OH0.69mF2oWzoQ9ph6tSCT9_LwlG0TRveGeaNlB92OQXJSA"

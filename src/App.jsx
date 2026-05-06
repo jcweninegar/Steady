@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { useAuth } from "./lib/AuthContext";
+import AuthScreen from "./screens/AuthScreen";
 
 const LIGHT = {
   bg:"#F7F4EF", card:"#FFFFFF", border:"rgba(0,0,0,0.07)", surface:"#F0EDE7",
@@ -1488,7 +1490,15 @@ function JournalScreen({T, captures, tasks}) {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  const { session, loading } = useAuth();
   const [dark,setDark]=useState(false);
+
+  if (loading) return (
+    <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center",background:"#F7F4EF",fontFamily:"'DM Sans',sans-serif",color:"#8A8680",fontSize:14}}>
+      steady<span style={{color:"#E9B84A"}}>.</span>
+    </div>
+  );
+  if (!session) return <AuthScreen dark={dark} />;
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
   const [chatPrompt,setChatPrompt]=useState(null);
