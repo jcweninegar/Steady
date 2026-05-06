@@ -1360,7 +1360,37 @@ export default function App() {
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
   const chatContentRef=useRef(null);
+  const recognitionRef=useRef(null);
+  const [isListening,setIsListening]=useState(false);
   const T=dark?DARK:LIGHT;
+
+  const toggleVoice=()=>{
+    if(isListening){
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ openSheet("chat",null,""); return; }
+    const r=new SR();
+    r.continuous=true;
+    r.interimResults=true;
+    r.lang="en-US";
+    r.onstart=()=>setIsListening(true);
+    r.onresult=e=>{
+      let t="";
+      for(let i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
+      setChatBarInput(t);
+      if(chatBarInputRef.current){
+        chatBarInputRef.current.style.height="auto";
+        chatBarInputRef.current.style.height=Math.min(chatBarInputRef.current.scrollHeight,72)+"px";
+      }
+    };
+    r.onerror=()=>setIsListening(false);
+    r.onend=()=>setIsListening(false);
+    recognitionRef.current=r;
+    r.start();
+  };
 
   if (loading) return (
     <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center",background:"#F7F4EF",fontFamily:"'DM Sans',sans-serif",color:"#8A8680",fontSize:14}}>
@@ -1437,11 +1467,12 @@ export default function App() {
             />
             {chatBarInput.trim()
               ? <button onClick={submitChatBar} style={{width:30,height:30,borderRadius:"50%",border:"none",background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}><SendIcon c={T.bg}/></button>
-              : <button onClick={()=>openSheet("chat",null,"")} style={{width:30,height:30,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}>
+              : <button onClick={toggleVoice} style={{width:30,height:30,borderRadius:"50%",border:"none",background:isListening?"rgba(217,79,79,0.12)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+                  {isListening && <span style={{position:"absolute",inset:-3,borderRadius:"50%",border:"2px solid "+T.red,animation:"pulse-ring 1.2s ease-out infinite",pointerEvents:"none"}}/>}
                   <svg width="15" height="18" viewBox="0 0 15 20" fill="none">
-                    <rect x="4" y="1" width="7" height="11" rx="3.5" stroke={T.muted} strokeWidth="1.4"/>
-                    <path d="M1 10c0 3.866 2.91 7 6.5 7s6.5-3.134 6.5-7" stroke={T.muted} strokeWidth="1.4" strokeLinecap="round"/>
-                    <line x1="7.5" y1="17" x2="7.5" y2="19" stroke={T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                    <rect x="4" y="1" width="7" height="11" rx="3.5" stroke={isListening?T.red:T.muted} strokeWidth="1.4"/>
+                    <path d="M1 10c0 3.866 2.91 7 6.5 7s6.5-3.134 6.5-7" stroke={isListening?T.red:T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                    <line x1="7.5" y1="17" x2="7.5" y2="19" stroke={isListening?T.red:T.muted} strokeWidth="1.4" strokeLinecap="round"/>
                   </svg>
                 </button>
             }
