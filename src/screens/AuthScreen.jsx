@@ -16,7 +16,7 @@ const DARK = {
   shadow:"0 1px 3px rgba(0,0,0,0.3),0 4px 20px rgba(0,0,0,0.2)",
 };
 
-export default function AuthScreen({ dark }) {
+export default function AuthScreen({ dark, onSkip }) {
   const T = dark ? DARK : LIGHT;
   const { signInWithGoogle, signInWithMagicLink } = useAuth();
   const [email, setEmail] = useState("");
@@ -134,10 +134,20 @@ export default function AuthScreen({ dark }) {
           )}
         </div>
 
-        <div style={{padding:"0 36px 40px",textAlign:"center"}}>
+        <div style={{padding:"0 36px 40px",textAlign:"center",display:"flex",flexDirection:"column",gap:16}}>
           <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>
             Your data is yours. We never sell it or share it.
           </div>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",padding:"4px 0",textDecoration:"underline",textDecorationColor:"transparent",transition:"color 0.15s"}}
+              onMouseEnter={e=>e.target.style.color=T.sub}
+              onMouseLeave={e=>e.target.style.color=T.muted}
+            >
+              Skip for now →
+            </button>
+          )}
         </div>
       </div>
     </>

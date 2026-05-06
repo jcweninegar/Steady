@@ -1490,7 +1490,7 @@ function JournalScreen({T, captures, tasks}) {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { session, loading } = useAuth();
+  const { session, loading, devBypass, setDevBypass } = useAuth();
   const [dark,setDark]=useState(false);
 
   if (loading) return (
@@ -1498,7 +1498,7 @@ export default function App() {
       steady<span style={{color:"#E9B84A"}}>.</span>
     </div>
   );
-  if (!session) return <AuthScreen dark={dark} />;
+  if (!session && !devBypass) return <AuthScreen dark={dark} onSkip={() => setDevBypass(true)} />;
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
   const [chatPrompt,setChatPrompt]=useState(null);
