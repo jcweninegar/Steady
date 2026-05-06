@@ -1392,13 +1392,6 @@ function JournalScreen({T, captures, tasks}) {
 export default function App() {
   const { session, loading, devBypass, setDevBypass } = useAuth();
   const [dark,setDark]=useState(false);
-
-  if (loading) return (
-    <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center",background:"#F7F4EF",fontFamily:"'DM Sans',sans-serif",color:"#8A8680",fontSize:14}}>
-      steady<span style={{color:"#E9B84A"}}>.</span>
-    </div>
-  );
-  if (!session && !devBypass) return <AuthScreen dark={dark} onSkip={() => setDevBypass(true)} />;
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
   const [chatPrompt,setChatPrompt]=useState(null);
@@ -1406,6 +1399,13 @@ export default function App() {
   const [tasks,setTasks]=useState(MOCK_TASKS);
   const chatBarRef=useRef(null);
   const T=dark?DARK:LIGHT;
+
+  if (loading) return (
+    <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center",background:"#F7F4EF",fontFamily:"'DM Sans',sans-serif",color:"#8A8680",fontSize:14}}>
+      steady<span style={{color:"#E9B84A"}}>.</span>
+    </div>
+  );
+  if (!session && !devBypass) return <AuthScreen dark={dark} onSkip={() => setDevBypass(true)} />;
   const openSheet=(id,prompt=null)=>{ setActiveSheet(id);if(prompt)setChatPrompt(prompt); };
   const closeSheet=()=>{ setActiveSheet(null);setChatPrompt(null); };
   const sheetTitle={chat:"Brain Dump",plan:"Plan",lifemap:"Life Map",journal:"Journal"};
