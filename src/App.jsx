@@ -1079,16 +1079,18 @@ function TaskCard({T, task, badge, onCheck, onClick, onRemove, draggable:isDrag,
 }
 
 function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
-  const PX_HR=80, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=4;
+  const PX_HR=80, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=3;
   const TOTAL_PX=(END_H-START_H)*PX_HR;
   const scrollRef=useRef(null);
   const gestureRef=useRef(null);
+  const sheetBlockRef=useRef(null);
   const [gesture,setGesture]=useState(null);
-  const [expanded,setExpanded]=useState({});
+  const [expandedId,setExpandedId]=useState(null);  // block id or null
+  const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
   const [blockOffsets,setBlockOffsets]=useState({morning:0,startup:0,workblock:0,shutdown:0,evening:0});
-  const [blockDurs,setBlockDurs]=useState({}); // user-set duration overrides (minutes)
+  const [blockDurs,setBlockDurs]=useState({});
   const [stepOrders,setStepOrders]=useState(()=>Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,rb.steps.map(s=>s.id)])));
-  const [cardDrag,setCardDrag]=useState(null); // {blockId, fromIdx, toIdx}
+  const [cardDrag,setCardDrag]=useState(null);
 
   const now=new Date();
   const nowPx=(now.getHours()-START_H)*PX_HR+now.getMinutes()*PX_MIN;
@@ -1098,12 +1100,11 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const hours=Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
 
   const stepTotal=(rb)=>rb.steps.reduce((a,s)=>a+s.dur,0);
-  const getDur=(id,defaultMins)=>id==="workblock"?workBlockMins:(blockDurs[id]!=null?blockDurs[id]:defaultMins);
+  const getDur=(id,def)=>id==="workblock"?workBlockMins:(blockDurs[id]!=null?blockDurs[id]:def);
 
-  // Build blocks with resolved positions and durations
   const buildBlocks=()=>[
-    ...CAL_ROUTINE_DEFS.map(rb=>({id:rb.id,label:rb.label,h:rb.h,m:rb.m,steps:rb.steps,defMins:stepTotal(rb),isRoutine:true,isMorning:!!rb.isMorning})),
-    {id:"workblock",label:"Work Block",h:9,m:15,steps:[],defMins:workBlockMins,isWorkBlock:true,isMorning:false},
+    ...CAL_ROUTINE_DEFS.map(rb=>({id:rb.id,label:rb.label,h:rb.h,m:rb.m,steps:rb.steps,defMins:stepTotal(rb),isRoutine:true})),
+    {id:"workblock",label:"Work Block",h:9,m:15,steps:[],defMins:workBlockMins,isWorkBlock:true},
   ].map(b=>{
     const off=blockOffsets[b.id]||0;
     const startMins=Math.max(START_H*60,Math.min((END_H-0.5)*60,b.h*60+b.m+off));
@@ -1112,6 +1113,13 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   }).sort((a,b)=>a.startMins-b.startMins);
 
   const ALL_BLOCKS=buildBlocks();
+
+  // Keep sheet content available during close animation
+  if(expandedId) sheetBlockRef.current=ALL_BLOCKS.find(b=>b.id===expandedId)||sheetBlockRef.current;
+  const sheetBlock=sheetBlockRef.current;
+
+  const openBlock=(id)=>{ setExpandedId(id); requestAnimationFrame(()=>setSheetVisible(true)); };
+  const closeBlock=()=>{ setSheetVisible(false); setTimeout(()=>{ setExpandedId(null); sheetBlockRef.current=null; },360); };
 
   useEffect(()=>{
     const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
@@ -1126,26 +1134,25 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
       if(!g)return;
       if(g.type==="resize"){
         const snapped=Math.round(((cy-g.y)/PX_MIN)/15)*15;
-        const newDur=Math.max(15,Math.min(600,g.origDur+snapped));
-        if(g.id==="workblock") setWorkBlockMins(newDur);
-        else setBlockDurs(p=>({...p,[g.id]:newDur}));
+        const nd=Math.max(15,Math.min(600,g.origDur+snapped));
+        if(g.id==="workblock") setWorkBlockMins(nd);
+        else setBlockDurs(p=>({...p,[g.id]:nd}));
       } else if(g.type==="drag"){
         const dy=cy-g.y;
         if(Math.abs(dy)>6) g.moved=true;
         if(!g.moved) return;
-        // Continuous proposed start (unsnapped, for smooth movement)
         let proposed=g.defaultStart+g.origOff+dy/PX_MIN;
-        // Clamp against snapshot of other blocks — no overlap
+        // No-overlap: establish hard lower/upper bounds from other blocks
+        let lo=START_H*60, hi=(END_H-0.5)*60-g.myDur;
+        const myCenter=proposed+g.myDur/2;
         for(const o of g.others){
-          if(proposed<o.endMins+GAP && proposed+g.myDur>o.startMins-GAP){
-            const otherMid=o.startMins+(o.endMins-o.startMins)/2;
-            if(proposed+g.myDur/2<otherMid) proposed=o.startMins-g.myDur-GAP;
-            else proposed=o.endMins+GAP;
-          }
+          const oCenter=o.startMins+(o.endMins-o.startMins)/2;
+          if(oCenter<myCenter) lo=Math.max(lo,o.endMins+GAP);
+          else hi=Math.min(hi,o.startMins-g.myDur-GAP);
         }
-        // Snap to 15-min, clamp to grid
+        proposed=Math.max(lo,Math.min(hi,proposed));
         proposed=Math.round(proposed/15)*15;
-        proposed=Math.max(START_H*60,Math.min((END_H-0.5)*60-g.myDur,proposed));
+        proposed=Math.max(lo,Math.min(hi,proposed));
         setBlockOffsets(p=>({...p,[g.id]:proposed-g.defaultStart}));
       }
     };
@@ -1170,167 +1177,182 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
       type:"drag",y:cy,id:block.id,
       defaultStart:block.h*60+block.m,
       origOff:blockOffsets[block.id]||0,
-      myDur:block.dur,
-      moved:false,
+      myDur:block.dur,moved:false,
       others:ALL_BLOCKS.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins})),
     };
     setGesture("drag-"+block.id);
   };
-  const toggleExp=(id)=>setExpanded(p=>({...p,[id]:!p[id]}));
 
   const reorderCards=(blockId,from,to)=>{
-    if(from===to) return;
-    if(blockId==="workblock"){
-      setWorkTasks(p=>{ const a=[...p];const [item]=a.splice(from,1);a.splice(to,0,item);return a; });
-    } else {
-      setStepOrders(p=>{ const a=[...p[blockId]];const [item]=a.splice(from,1);a.splice(to,0,item);return {...p,[blockId]:a}; });
-    }
+    if(from===to)return;
+    if(blockId==="workblock") setWorkTasks(p=>{const a=[...p];const[i]=a.splice(from,1);a.splice(to,0,i);return a;});
+    else setStepOrders(p=>{const a=[...p[blockId]];const[i]=a.splice(from,1);a.splice(to,0,i);return{...p,[blockId]:a};});
+  };
+
+  // Shared card row renderer for the sheet
+  const renderCard=(blockId,item,i,isTask)=>{
+    const isDragOver=cardDrag?.blockId===blockId&&cardDrag?.toIdx===i;
+    const done=isTask?item.done:routineDone[item.id];
+    return (
+      <div key={item.id}
+        draggable
+        onDragStart={e=>{
+          e.stopPropagation();
+          e.dataTransfer.setDragImage(e.currentTarget,e.nativeEvent.offsetX,e.nativeEvent.offsetY);
+          setCardDrag({blockId,fromIdx:i,toIdx:i});
+        }}
+        onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
+        onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards(blockId,cardDrag.fromIdx,i);setCardDrag(null);}}
+        onDragEnd={()=>setCardDrag(null)}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:isDragOver?T.accentSoft:T.surface,borderRadius:12,border:"1.5px solid "+(isDragOver?T.accent:T.border),transition:"background 0.1s,border-color 0.1s",userSelect:"none",WebkitUserSelect:"none",cursor:"grab",boxSizing:"border-box"}}>
+        {/* Checkbox */}
+        <div
+          onClick={e=>{e.stopPropagation();isTask?markDone&&markDone(item.id):setRoutineDone(p=>({...p,[item.id]:!p[item.id]}));}}
+          style={{width:22,height:22,borderRadius:"50%",border:done?"none":"1.5px solid "+T.sub,background:done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",cursor:"pointer"}}>
+          {done&&CHECK_SVG(T.accentText)}
+        </div>
+        {isTask&&i<3&&<div style={{width:18,height:18,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:700,color:T.accent}}>{i+1}</span></div>}
+        {/* Label — click opens detail for tasks */}
+        <div style={{flex:1,minWidth:0}} onClick={isTask?()=>onTaskClick&&onTaskClick(item):undefined}>
+          <div style={{fontSize:14,color:done?T.sub:T.text,textDecoration:done?"line-through":"none",lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isTask?item.label:item.text}</div>
+          {!isTask&&<div style={{fontSize:11,color:T.muted,marginTop:1}}>{item.dur}m</div>}
+        </div>
+        <span style={{fontSize:16,color:T.muted,cursor:"grab",flexShrink:0,paddingLeft:4}}>⠿</span>
+      </div>
+    );
   };
 
   return (
-    <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
-      <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto"}}>
+    <>
+      {/* Calendar grid */}
+      <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
+        <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto"}}>
 
-        {/* Hour lines + labels */}
-        {hours.map(h=>(
-          <div key={h} style={{position:"absolute",top:toY(h,0),left:0,right:0,pointerEvents:"none"}}>
-            <span style={{position:"absolute",left:0,top:-9,fontSize:11,color:T.sub,width:50,textAlign:"right",paddingRight:10,lineHeight:1}}>{fmtH(h)}</span>
-            <div style={{position:"absolute",left:54,right:0,top:0,height:1,background:T.divider}}/>
-          </div>
-        ))}
-        {hours.slice(0,-1).map(h=>(
-          <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.3,pointerEvents:"none"}}/>
-        ))}
+          {/* Hour lines */}
+          {hours.map(h=>(
+            <div key={h} style={{position:"absolute",top:toY(h,0),left:0,right:0,pointerEvents:"none"}}>
+              <span style={{position:"absolute",left:0,top:-9,fontSize:11,color:T.sub,width:50,textAlign:"right",paddingRight:10,lineHeight:1}}>{fmtH(h)}</span>
+              <div style={{position:"absolute",left:54,right:0,top:0,height:1,background:T.divider}}/>
+            </div>
+          ))}
+          {hours.slice(0,-1).map(h=>(
+            <div key={"m"+h} style={{position:"absolute",top:toY(h,30),left:54,right:0,height:1,background:T.divider,opacity:0.3,pointerEvents:"none"}}/>
+          ))}
 
-        {/* Blocks */}
-        {ALL_BLOCKS.map(block=>{
-          const isExp=expanded[block.id];
-          const isDragging=gesture==="drag-"+block.id;
-          const isResizing=gesture==="resize-"+block.id;
-          const blockH=Math.max(44,block.dur*PX_MIN);
-          const allDone=block.isRoutine&&block.steps.every(s=>routineDone[s.id]);
-          // Overflow: step total exceeds user-constrained duration
-          const cardTotal=block.isRoutine?block.defMins:0;
-          const hasOverflow=block.isRoutine&&blockDurs[block.id]!=null&&cardTotal>blockDurs[block.id];
-          const hasCustomDur=!block.isWorkBlock&&blockDurs[block.id]!=null;
-          // Ordered steps for routine blocks
-          const orderedSteps=block.isRoutine
-            ?(stepOrders[block.id]||[]).map(sid=>block.steps.find(s=>s.id===sid)).filter(Boolean)
-            :[];
+          {/* Blocks — collapsed, uniform style, only label+duration */}
+          {ALL_BLOCKS.map(block=>{
+            const isDragging=gesture==="drag-"+block.id;
+            const isResizing=gesture==="resize-"+block.id;
+            const blockH=Math.max(44,block.dur*PX_MIN);
+            const allDone=block.isRoutine&&block.steps.every(s=>routineDone[s.id]);
+            const cardTotal=block.isRoutine?block.defMins:0;
+            const hasOverflow=block.isRoutine&&blockDurs[block.id]!=null&&cardTotal>blockDurs[block.id];
+            const isOpen=expandedId===block.id;
 
-          return (
-            <div key={block.id} style={{
-              position:"absolute",left:58,right:10,top:block.top,
-              height:isExp?undefined:blockH,
-              minHeight:blockH,
-              background:block.isMorning?T.accent+"20":block.isWorkBlock?T.accentSoft:T.card,
-              border:"1.5px solid "+(hasOverflow?"#E07A5F"+(isDragging?"":"70"):isDragging||isResizing?T.accent:block.isMorning?T.accent+"50":block.isWorkBlock?T.accent+"55":T.border),
-              borderRadius:14,overflow:"hidden",boxSizing:"border-box",
-              opacity:allDone?0.35:1,
-              boxShadow:isDragging?"0 12px 32px rgba(0,0,0,0.22)":hasOverflow?"0 0 0 2px #E07A5F18":"none",
-              zIndex:isDragging?30:isExp?8:block.isWorkBlock?5:1,
-              transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
-            }}>
-              {/* Header — drag zone left, chevron right */}
-              <div style={{display:"flex",alignItems:"flex-start"}}>
-                <div
-                  onMouseDown={e=>startDrag(e,block)}
-                  onTouchStart={e=>startDrag(e,block)}
-                  style={{flex:1,padding:"9px 6px 9px 12px",cursor:"grab",touchAction:"none",minHeight:isExp?undefined:blockH-20}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
-                    <span style={{fontSize:13,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1}}>{block.label}</span>
-                    {hasOverflow&&<span style={{fontSize:10,background:"#E07A5F22",color:"#E07A5F",padding:"1px 6px",borderRadius:8,fontWeight:600,whiteSpace:"nowrap"}}>over time</span>}
-                  </div>
-                  <div style={{fontSize:10,color:T.muted,marginBottom:!isExp?4:0}}>
-                    {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)+(hasCustomDur?" ·custom":"")}
-                  </div>
-                  {/* Collapsed mini card previews */}
-                  {!isExp&&block.isRoutine&&orderedSteps.map(s=>(
-                    <div key={s.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(routineDone[s.id]?T.accent:T.sub),background:routineDone[s.id]?T.accent:"transparent",flexShrink:0}}/>
-                      <span style={{fontSize:10,color:routineDone[s.id]?T.muted:T.text,textDecoration:routineDone[s.id]?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.text}</span>
+            return (
+              <div key={block.id} style={{
+                position:"absolute",left:58,right:10,top:block.top,height:blockH,
+                background:T.card,
+                border:"1.5px solid "+(hasOverflow?"#E07A5F70":isDragging||isResizing?T.accent:isOpen?T.accent+"80":T.border),
+                borderRadius:12,overflow:"hidden",boxSizing:"border-box",
+                opacity:allDone?0.4:1,
+                boxShadow:isDragging?"0 10px 30px rgba(0,0,0,0.2)":isOpen?"0 0 0 2px "+T.accent+"30":"none",
+                zIndex:isDragging?30:1,
+                transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
+              }}>
+                {/* Header — left is drag zone, right is expand chevron */}
+                <div style={{display:"flex",alignItems:"center",height:blockH-20}}>
+                  <div
+                    onMouseDown={e=>startDrag(e,block)}
+                    onTouchStart={e=>startDrag(e,block)}
+                    style={{flex:1,padding:"0 6px 0 12px",cursor:"grab",touchAction:"none",minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
+                      {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
                     </div>
-                  ))}
-                  {!isExp&&block.isWorkBlock&&workTasks.slice(0,4).map((t,i)=>(
-                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",border:"1px solid "+(t.done?T.accent:T.sub),background:t.done?T.accent:"transparent",flexShrink:0}}/>
-                      <span style={{fontSize:10,color:t.done?T.muted:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{i<3?`${i+1}. `:""}{t.label}</span>
+                    <div style={{fontSize:10,color:T.muted,marginTop:2}}>
+                      {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
                     </div>
-                  ))}
-                  {!isExp&&block.isWorkBlock&&workTasks.length>4&&<div style={{fontSize:9,color:T.muted}}>+{workTasks.length-4} more</div>}
+                  </div>
+                  <div onClick={()=>isOpen?closeBlock():openBlock(block.id)} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0}}>
+                    {CHEVRON(T.sub,isOpen)}
+                  </div>
                 </div>
-                <div onClick={()=>toggleExp(block.id)} style={{padding:"10px 12px 10px 4px",cursor:"pointer",flexShrink:0}}>
-                  {CHEVRON(block.isMorning?T.accent:T.sub,isExp)}
+                {/* Resize handle */}
+                <div
+                  onMouseDown={e=>startResize(e,block)}
+                  onTouchStart={e=>startResize(e,block)}
+                  style={{position:"absolute",bottom:0,left:0,right:0,height:20,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"14)",touchAction:"none"}}>
+                  <div style={{width:24,height:3,background:T.accent+(isResizing?"aa":"44"),borderRadius:2,transition:"background 0.15s"}}/>
                 </div>
               </div>
+            );
+          })}
 
-              {/* Expanded cards — drag to reorder */}
-              {isExp&&(
-                <div style={{padding:"2px 10px 26px",display:"flex",flexDirection:"column",gap:5}}>
-                  {block.isRoutine&&orderedSteps.map((s,i)=>{
-                    const isDragOver=cardDrag?.blockId===block.id&&cardDrag?.toIdx===i;
-                    return (
-                      <div key={s.id}
-                        draggable
-                        onDragStart={e=>{e.stopPropagation();setCardDrag({blockId:block.id,fromIdx:i,toIdx:i});}}
-                        onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
-                        onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards(block.id,cardDrag.fromIdx,i);setCardDrag(null);}}
-                        onDragEnd={()=>setCardDrag(null)}
-                        onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:isDragOver?T.accentSoft:T.surface,borderRadius:9,cursor:"grab",border:"1.5px solid "+(isDragOver?T.accent:"transparent"),transition:"all 0.1s",userSelect:"none"}}>
-                        <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
-                          {routineDone[s.id]&&CHECK_SVG(T.accentText)}
-                        </div>
-                        <span style={{flex:1,fontSize:12,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                        <span style={{fontSize:10,color:T.muted,flexShrink:0}}>{s.dur}m</span>
-                        <span style={{fontSize:13,color:T.muted,paddingLeft:2,cursor:"grab"}}>⠿</span>
-                      </div>
-                    );
-                  })}
-                  {block.isWorkBlock&&(workTasks.length===0?(
-                    <div style={{textAlign:"center",fontSize:12,color:T.muted,fontStyle:"italic",padding:"8px 0"}}>No tasks yet — add from Agenda</div>
-                  ):workTasks.map((task,i)=>{
-                    const isDragOver=cardDrag?.blockId==="workblock"&&cardDrag?.toIdx===i;
-                    return (
-                      <div key={task.id}
-                        draggable
-                        onDragStart={e=>{e.stopPropagation();setCardDrag({blockId:"workblock",fromIdx:i,toIdx:i});}}
-                        onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
-                        onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards("workblock",cardDrag.fromIdx,i);setCardDrag(null);}}
-                        onDragEnd={()=>setCardDrag(null)}
-                        onClick={e=>{e.stopPropagation();onTaskClick&&onTaskClick(task);}}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:isDragOver?T.accentSoft:T.surface,borderRadius:9,cursor:"grab",border:"1.5px solid "+(isDragOver?T.accent:"transparent"),transition:"all 0.1s",userSelect:"none"}}>
-                        <div onClick={e2=>{e2.stopPropagation();markDone&&markDone(task.id);}} style={{width:18,height:18,borderRadius:"50%",border:task.done?"none":"1.5px solid "+T.sub,background:task.done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",cursor:"pointer"}}>
-                          {task.done&&CHECK_SVG(T.accentText)}
-                        </div>
-                        {i<3&&<span style={{fontSize:9,fontWeight:700,color:T.accent,width:10,flexShrink:0}}>{i+1}</span>}
-                        <span style={{flex:1,fontSize:12,color:task.done?T.sub:T.text,textDecoration:task.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</span>
-                        <span style={{fontSize:13,color:T.muted,cursor:"grab"}}>⠿</span>
-                      </div>
-                    );
-                  }))}
-                </div>
-              )}
+          {/* Now line */}
+          {now.getHours()>=START_H&&now.getHours()<END_H&&(
+            <div style={{position:"absolute",top:nowPx,left:54,right:0,height:1.5,background:T.accent,zIndex:10,pointerEvents:"none"}}>
+              <div style={{position:"absolute",left:-5,top:-3.5,width:9,height:9,borderRadius:"50%",background:T.accent}}/>
+            </div>
+          )}
+        </div>
+      </div>
 
-              {/* Resize handle — ALL blocks */}
-              <div
-                onMouseDown={e=>startResize(e,block)}
-                onTouchStart={e=>startResize(e,block)}
-                style={{position:"absolute",bottom:0,left:0,right:0,height:20,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"18)",touchAction:"none"}}>
-                <div style={{width:28,height:3,background:T.accent+(isResizing?"cc":"55"),borderRadius:2,transition:"background 0.15s"}}/>
+      {/* Backdrop */}
+      <div
+        onClick={closeBlock}
+        style={{
+          position:"fixed",inset:0,
+          background:"rgba(0,0,0,0.28)",
+          zIndex:290,
+          opacity:sheetVisible?1:0,
+          pointerEvents:sheetVisible?"auto":"none",
+          transition:"opacity 0.32s ease",
+        }}/>
+
+      {/* Expanded block bottom sheet (~2/3 screen, slide-up animation) */}
+      <div style={{
+        position:"fixed",bottom:0,left:0,right:0,
+        height:"68vh",
+        background:T.bg,
+        borderRadius:"22px 22px 0 0",
+        boxShadow:"0 -10px 48px rgba(0,0,0,0.18)",
+        zIndex:300,
+        display:"flex",flexDirection:"column",
+        transform:sheetVisible?"translateY(0)":"translateY(100%)",
+        transition:"transform 0.36s cubic-bezier(0.25,0.46,0.45,0.94)",
+        overflow:"hidden",
+      }}>
+        {sheetBlock&&(<>
+          {/* Drag pill */}
+          <div style={{display:"flex",justifyContent:"center",padding:"10px 0 4px"}}>
+            <div style={{width:36,height:4,borderRadius:2,background:T.divider}}/>
+          </div>
+          {/* Sheet header */}
+          <div style={{padding:"4px 20px 14px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",borderBottom:"1px solid "+T.divider}}>
+            <div>
+              <div style={{fontSize:18,fontWeight:700,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.2}}>{sheetBlock.label}</div>
+              <div style={{fontSize:12,color:T.sub,marginTop:4}}>
+                {sheetBlock.isWorkBlock?`${workTasks.length} task${workTasks.length!==1?"s":""} · ${durStr(sheetBlock.dur)}`:durStr(sheetBlock.dur)}
+                {!sheetBlock.isWorkBlock&&blockDurs[sheetBlock.id]!=null&&<span style={{color:T.accent,marginLeft:6}}>custom</span>}
               </div>
             </div>
-          );
-        })}
-
-        {/* Now line */}
-        {now.getHours()>=START_H&&now.getHours()<END_H&&(
-          <div style={{position:"absolute",top:nowPx,left:54,right:0,height:1.5,background:T.accent,zIndex:10,pointerEvents:"none"}}>
-            <div style={{position:"absolute",left:-5,top:-3.5,width:9,height:9,borderRadius:"50%",background:T.accent}}/>
+            <button onClick={closeBlock} style={{background:"none",border:"none",fontSize:22,color:T.sub,cursor:"pointer",padding:"0 0 0 16px",lineHeight:1,marginTop:2}}>×</button>
           </div>
-        )}
+          {/* Card list */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 16px 32px",display:"flex",flexDirection:"column",gap:8,WebkitOverflowScrolling:"touch"}}>
+            {sheetBlock.isRoutine&&(
+              (stepOrders[sheetBlock.id]||[]).map(sid=>sheetBlock.steps.find(s=>s.id===sid)).filter(Boolean).map((s,i)=>
+                renderCard(sheetBlock.id,s,i,false)
+              )
+            )}
+            {sheetBlock.isWorkBlock&&(workTasks.length===0?(
+              <div style={{textAlign:"center",fontSize:13,color:T.muted,fontStyle:"italic",padding:"32px 0"}}>No tasks yet — add from Agenda</div>
+            ):workTasks.map((t,i)=>renderCard("workblock",t,i,true)))}
+          </div>
+        </>)}
       </div>
-    </div>
+    </>
   );
 }
 
