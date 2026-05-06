@@ -31,7 +31,14 @@ export default function AuthScreen({ dark }) {
     try {
       await signInWithGoogle();
     } catch (e) {
-      setError("Couldn't connect to Google. Try email instead.");
+      const msg = e?.message || "";
+      if (msg.includes("provider is not enabled") || msg.includes("Unsupported provider")) {
+        setError("Google sign-in isn't configured yet. Use email below, or see setup instructions.");
+      } else if (msg.includes("redirect")) {
+        setError("Redirect URL not allowed. Please add your app URL in Supabase → Auth → URL Configuration.");
+      } else {
+        setError(msg || "Couldn't connect to Google. Try email below instead.");
+      }
       setLoading(false);
     }
   }
