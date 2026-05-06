@@ -391,7 +391,7 @@ RECENT BRAIN DUMP CAPTURES: ${captureText}`;
 const distPath = path.join(__dirname, "dist");
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+  app.get(/(.*)/, (req, res) => res.sendFile(path.join(distPath, "index.html")));
 }
 
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
