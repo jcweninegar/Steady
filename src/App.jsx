@@ -1423,25 +1423,28 @@ export default function App() {
         </div>
 
         {/* ── PERSISTENT CHAT BAR — always visible, above all sheets ── */}
-        <div ref={chatBarRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,borderTop:"1px solid "+T.divider,padding:"10px 16px 28px",background:T.bg,transition:"background 0.4s"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{flex:1,background:T.card,borderRadius:22,padding:"9px 10px 9px 16px",border:"1px solid "+T.border,boxShadow:T.shadow,display:"flex",alignItems:"center",gap:8}}>
-              <textarea
-                ref={chatBarInputRef}
-                value={chatBarInput}
-                onChange={e=>setChatBarInput(e.target.value)}
-                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
-                placeholder="What's on your mind..."
-                rows={1}
-                style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,resize:"none",outline:"none",maxHeight:72,overflowY:"auto"}}
-                onInput={e=>{e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,72)+"px";}}
-              />
-              {chatBarInput.trim()
-                ? <button onClick={submitChatBar} style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><SendIcon c={T.accentText}/></button>
-                : <button onClick={()=>openSheet("chat",null,"")} style={{width:32,height:32,borderRadius:"50%",border:"none",background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke={T.muted} strokeWidth="2" strokeLinecap="round"/></svg></button>
-              }
-            </div>
-            <MicButton T={T} onPress={()=>openSheet("chat",null,"")}/>
+        <div ref={chatBarRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,borderTop:"1px solid "+T.divider,padding:"10px 20px 28px",background:T.bg,transition:"background 0.4s"}}>
+          <div style={{background:T.card,borderRadius:24,padding:"10px 12px 10px 18px",border:"1px solid "+T.border,display:"flex",alignItems:"center",gap:8}}>
+            <textarea
+              ref={chatBarInputRef}
+              value={chatBarInput}
+              onChange={e=>setChatBarInput(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
+              placeholder="What's on your mind..."
+              rows={1}
+              style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,resize:"none",outline:"none",maxHeight:72,overflowY:"auto"}}
+              onInput={e=>{e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,72)+"px";}}
+            />
+            {chatBarInput.trim()
+              ? <button onClick={submitChatBar} style={{width:30,height:30,borderRadius:"50%",border:"none",background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}><SendIcon c={T.bg}/></button>
+              : <button onClick={()=>openSheet("chat",null,"")} style={{width:30,height:30,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}>
+                  <svg width="15" height="18" viewBox="0 0 15 20" fill="none">
+                    <rect x="4" y="1" width="7" height="11" rx="3.5" stroke={T.muted} strokeWidth="1.4"/>
+                    <path d="M1 10c0 3.866 2.91 7 6.5 7s6.5-3.134 6.5-7" stroke={T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                    <line x1="7.5" y1="17" x2="7.5" y2="19" stroke={T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                </button>
+            }
           </div>
         </div>
 
