@@ -1853,6 +1853,12 @@ export default function App() {
 
   useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
   useEffect(()=>{ try{ localStorage.setItem("steady_captures",JSON.stringify(captures)); }catch{} },[captures]);
+  useEffect(()=>{
+    const el=chatBarInputRef.current;
+    if(!el) return;
+    el.style.height="auto";
+    el.style.height=Math.min(el.scrollHeight,140)+"px";
+  },[chatBarInput]);
 
   const toggleVoice=()=>{
     if(isListening){
@@ -1900,6 +1906,7 @@ export default function App() {
     const text=chatBarInput.trim();
     if(!text) { openSheet("chat",null,""); return; }
     setChatBarInput("");
+    if(chatBarInputRef.current){ chatBarInputRef.current.style.height="auto"; }
     if(activeSheet==="chat" && chatContentRef.current) {
       chatContentRef.current.sendMessage(text);
     } else {
@@ -1948,12 +1955,11 @@ export default function App() {
             <textarea
               ref={chatBarInputRef}
               value={chatBarInput}
-              onChange={e=>setChatBarInput(e.target.value)}
+              onChange={e=>{ setChatBarInput(e.target.value); e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,140)+"px"; }}
               onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
               placeholder="What's on your mind..."
               rows={1}
-              style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,resize:"none",outline:"none",maxHeight:72,overflowY:"auto"}}
-              onInput={e=>{e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,72)+"px";}}
+              style={{flex:1,border:"none",background:"transparent",color:T.text,fontSize:15,fontFamily:"'DM Sans',sans-serif",lineHeight:1.5,resize:"none",outline:"none",maxHeight:140,overflowY:"auto",scrollbarWidth:"none"}}
             />
             {chatBarInput.trim()
               ? <button onClick={submitChatBar} style={{width:30,height:30,borderRadius:"50%",border:"none",background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}><SendIcon c={T.bg}/></button>
