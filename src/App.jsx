@@ -1076,16 +1076,15 @@ function TaskSheet({T, task, open, onClose, onSave}) {
             </div>
           </div>
           <div style={{background:T.card,borderRadius:14,padding:"14px 16px",marginBottom:12,border:"1px solid "+T.border}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:12}}>Steps <span style={{fontWeight:400,color:T.muted}}>(optional)</span></div>
+            <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:12}}>Steps <span style={{fontWeight:400,color:T.sub,opacity:0.6}}>(optional)</span></div>
             {subtasks.map((sub,i)=>(
-              <div key={i} style={{background:T.surface,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                  <button onClick={()=>setSubtasks(p=>p.map((s,j)=>j===i?{...s,done:!s.done}:s))} style={{width:20,height:20,borderRadius:"50%",border:sub.done?"none":"1.5px solid "+T.muted,background:sub.done?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    {sub.done&&<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </button>
-                  <span style={{flex:1,fontSize:14,color:T.text,textDecoration:sub.done?"line-through":"none",opacity:sub.done?0.5:1}}>{sub.text}</span>
-                  <button onClick={()=>setSubtasks(p=>p.filter((_,j)=>j!==i))} style={{color:T.muted,background:"none",border:"none",fontSize:16,cursor:"pointer",padding:"0 4px"}}>×</button>
-                </div>
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid "+T.divider}}>
+                <button onClick={()=>setSubtasks(p=>p.map((s,j)=>j===i?{...s,done:!s.done}:s))} style={{width:20,height:20,borderRadius:"50%",border:sub.done?"none":"1.5px solid "+T.sub,background:sub.done?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+                  {sub.done&&<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </button>
+                <span style={{flex:1,fontSize:14,color:sub.done?T.sub:T.text,textDecoration:sub.done?"line-through":"none"}}>{sub.text}</span>
+                <span style={{fontSize:11,color:T.muted}}>{sub.mins}</span>
+                <button onClick={()=>setSubtasks(p=>p.filter((_,j)=>j!==i))} style={{color:T.sub,background:"none",border:"none",fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
               </div>
             ))}
             <div style={{background:T.surface,borderRadius:10,padding:"10px 12px",border:"1px dashed "+T.border}}>
@@ -1121,19 +1120,80 @@ const MOCK_TASKS=[
 const formatDue=(d)=>{ if(!d)return"";const date=new Date(d);const today=new Date();today.setHours(0,0,0,0);const diff=Math.round((date-today)/(1000*60*60*24));if(diff<0)return"Overdue";if(diff===0)return"Today";if(diff===1)return"Tomorrow";return date.toLocaleDateString([],{month:"short",day:"numeric"}); };
 const dueColor=(d,T)=>{ if(!d)return T.muted;const date=new Date(d);const today=new Date();today.setHours(0,0,0,0);const diff=Math.round((date-today)/(1000*60*60*24));if(diff<0)return T.red;if(diff<=1)return T.accent;return T.muted; };
 
+const CAL_ROUTINES = [
+  {id:"morning", label:"Morning", time:"6:00 AM", accent:true, steps:[
+    {id:"m1",text:"Medication",dur:"2 min"},
+    {id:"m2",text:"Morning review",dur:"5 min"},
+    {id:"m3",text:"Movement",dur:"20 min"},
+  ]},
+  {id:"startup", label:"Startup", time:"9:00 AM", accent:false, steps:[
+    {id:"st1",text:"Review Top 3",dur:"5 min"},
+    {id:"st2",text:"Set intention",dur:"3 min"},
+    {id:"st3",text:"Clear open loops",dur:"5 min"},
+  ]},
+  {id:"shutdown", label:"Shutdown", time:"5:30 PM", accent:false, steps:[
+    {id:"sh1",text:"Capture open loops",dur:"5 min"},
+    {id:"sh2",text:"Prep tomorrow",dur:"5 min"},
+  ]},
+  {id:"evening", label:"Evening", time:"7:00 PM", accent:false, steps:[
+    {id:"e1",text:"Decompress / family time",dur:"30 min"},
+    {id:"e2",text:"Bedtime prep",dur:"15 min"},
+  ]},
+];
+
+function CalendarView({T, big3, routineDone, setRoutineDone}) {
+  const focusTimes=["9:15 AM","10:45 AM","1:30 PM"];
+  const check=(id)=><svg width="8" height="6" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+  const blocks=[
+    ...CAL_ROUTINES.slice(0,2),
+    ...big3.filter(Boolean).map((t,i)=>({id:"focus-"+i,label:t.label,time:focusTimes[i],isFocus:true,steps:[]})),
+    ...CAL_ROUTINES.slice(2),
+  ];
+  return (
+    <div style={{position:"relative",paddingLeft:58,paddingBottom:8}}>
+      <div style={{position:"absolute",left:50,top:10,bottom:10,width:1,background:T.divider}}/>
+      {blocks.map((block,i)=>{
+        const done=!block.isFocus&&block.steps.every(s=>routineDone[s.id]);
+        return (
+          <div key={block.id} style={{position:"relative",marginBottom:16}}>
+            <div style={{position:"absolute",left:-51,top:5,fontSize:10,color:T.muted,textAlign:"right",width:44,lineHeight:1.2}}>{block.time}</div>
+            <div style={{position:"absolute",left:-6,top:5,width:11,height:11,borderRadius:"50%",background:block.accent?T.accent:block.isFocus?T.accentSoft:T.surface,border:"2px solid "+T.bg,zIndex:2,boxShadow:"0 0 0 1px "+(block.accent?T.accent:T.border)}}/>
+            <div style={{background:T.card,borderRadius:12,border:"1px solid "+(done?T.divider:T.border),opacity:done?0.5:1,transition:"opacity 0.3s"}}>
+              <div style={{padding:"10px 14px 6px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{fontSize:11,fontWeight:700,color:block.accent?T.accent:block.isFocus?T.text:T.sub,letterSpacing:"0.5px",textTransform:block.isFocus?"none":"uppercase"}}>{block.label}</span>
+                {block.isFocus&&<span style={{fontSize:10,color:T.muted,fontStyle:"italic"}}>focus block</span>}
+              </div>
+              {block.steps.length>0&&(
+                <div style={{padding:"0 14px 10px",display:"flex",flexDirection:"column",gap:6}}>
+                  {block.steps.map(s=>(
+                    <div key={s.id} onClick={()=>setRoutineDone(p=>({...p,[s.id]:!p[s.id]}))} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",opacity:routineDone[s.id]?0.4:1,transition:"opacity 0.2s"}}>
+                      <div style={{width:18,height:18,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+                        {routineDone[s.id]&&check(s.id)}
+                      </div>
+                      <span style={{flex:1,fontSize:13,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
+                      <span style={{fontSize:10,color:T.muted}}>{s.dur}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlanContent({T, tasks, setTasks}) {
+  const [planView,setPlanView]=useState("agenda");
   const [big3,setBig3]=useState([null,null,null]);
-  const [showUpNext,setShowUpNext]=useState(false);
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
   const [dragId,setDragId]=useState(null);
   const [dragOver,setDragOver]=useState(null);
-  const MORNING=[{id:"m1",label:"Medication",time:"6:00 AM",dur:"2 min"},{id:"m2",label:"Morning review",time:"6:05 AM",dur:"5 min"},{id:"m3",label:"Movement",time:"6:20 AM",dur:"20 min"}];
-  const SHUTDOWN=[{id:"s1",label:"Wind-down capture",time:"8:00 PM",dur:"5 min"},{id:"s2",label:"Tomorrow prep",time:"8:10 PM",dur:"5 min"}];
-  const [morningDone,setMorningDone]=useState({});
-  const [shutdownDone,setShutdownDone]=useState({});
+  const [routineDone,setRoutineDone]=useState({});
   const big3Ids=big3.filter(Boolean).map(t=>t.id);
-  const listTasks=tasks.filter(t=>!t.done&&!big3Ids.includes(t.id)).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)).slice(0,10);
+  const listTasks=tasks.filter(t=>!t.done&&!big3Ids.includes(t.id)).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
   const filledCount=big3.filter(Boolean).length;
   const addToBig3=(task)=>{ const i=big3.findIndex(s=>s===null);if(i===-1)return;const n=[...big3];n[i]=task;setBig3(n); };
   const removeFromBig3=(i)=>{ const n=[...big3];n[i]=null;setBig3(n); };
@@ -1147,94 +1207,86 @@ function PlanContent({T, tasks, setTasks}) {
   useEffect(()=>{ if(big3.every(s=>s===null)&&tasks.filter(t=>!t.done).length>0){ suggestTop3(tasks,[],null).then(suggested=>{ if(suggested.length>0)setBig3([suggested[0]||null,suggested[1]||null,suggested[2]||null]); }).catch(()=>{}); } },[]);
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 20px"}}>
-      <div style={{padding:"16px 20px 12px",background:T.bg}}>
+      {/* ── Header ── */}
+      <div style={{padding:"16px 20px 0",background:T.bg}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
           <div style={{height:"100%",background:T.accent,borderRadius:2,width:(filledCount===0?0:(filledCount/3)*100)+"%",transition:"width 0.4s"}}/>
         </div>
+        {/* Sub-nav */}
+        <div style={{display:"flex",gap:4,marginTop:14,marginBottom:2,background:T.surface,borderRadius:20,padding:3,alignSelf:"flex-start",width:"fit-content"}}>
+          {["Agenda","Calendar"].map(v=>(
+            <button key={v} onClick={()=>setPlanView(v.toLowerCase())} style={{padding:"6px 18px",borderRadius:16,border:"none",background:planView===v.toLowerCase()?T.card:"transparent",color:planView===v.toLowerCase()?T.text:T.sub,fontSize:12,fontWeight:planView===v.toLowerCase()?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",boxShadow:planView===v.toLowerCase()?T.shadow:"none"}}>
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
-      <div style={{padding:"0 20px"}}>
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Morning routine</div>
-          <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-            {MORNING.map((r,i)=>(
-              <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",opacity:morningDone[r.id]?0.35:1}}>
-                <button onClick={()=>setMorningDone(p=>({...p,[r.id]:!p[r.id]}))} style={{width:22,height:22,borderRadius:"50%",border:morningDone[r.id]?"none":"1.5px solid "+T.muted,background:morningDone[r.id]?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
-                  {morningDone[r.id]&&<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                </button>
-                <div style={{flex:1}}><div style={{fontSize:14,color:T.text,textDecoration:morningDone[r.id]?"line-through":"none"}}>{r.label}</div><div style={{fontSize:11,color:T.muted}}>{r.time} · {r.dur}</div></div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>Top 3 today</div>
-            <button onClick={()=>setShowUpNext(s=>!s)} style={{fontSize:11,color:T.accent,fontWeight:600,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>{showUpNext?"Hide tasks":"View all tasks"}</button>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {big3.map((task,idx)=>(
-              <div key={idx} onDragOver={e=>onB3DO(e,idx)} onDrop={e=>onB3Dr(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(dragOver==="b3-"+idx?T.accent:task?T.border:T.divider),background:task?T.card:"transparent",minHeight:46,transition:"all 0.15s"}}>
-                {task?(
-                  <div draggable onDragStart={()=>onB3DS(idx)} onClick={()=>{setSelected(task);setSheetOpen(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer"}}>
-                    <div style={{width:20,height:20,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
-                    <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35}}>{task.label}</span>
-                    <span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500,flexShrink:0}}>{formatDue(task.dueDate)}</span>
-                    <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.muted,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.muted} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-                    <button onClick={e=>{e.stopPropagation();removeFromBig3(idx);}} style={{background:"none",border:"none",color:T.muted,fontSize:16,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
-                  </div>
-                ):(
-                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}>
-                    <div style={{width:20,height:20,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,color:T.muted}}>{idx+1}</span></div>
-                    <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Drag here or tap +</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-        {showUpNext&&(
-          <div style={{marginBottom:16}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>Up next</div>
-              <div style={{fontSize:11,color:T.muted}}>Sorted by due date</div>
-            </div>
-            {listTasks.length===0?<div style={{textAlign:"center",padding:"20px",color:T.muted,fontSize:13}}>All tasks in Top 3 or done.</div>:(
-              <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-                {listTasks.map((task,i)=>{
-                  const canAdd=big3.some(s=>s===null);
-                  return (
-                    <div key={task.id} draggable onDragStart={()=>setDragId(task.id)} onClick={()=>{setSelected(task);setSheetOpen(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",cursor:"pointer",opacity:dragId===task.id?0.4:1}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:T.text,marginBottom:1}}>{task.label}</div>
-                        <div style={{fontSize:11,color:T.muted,display:"flex",gap:6}}>
-                          {task.dueDate&&<span style={{color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
-                        </div>
+
+      <div style={{padding:"14px 20px 0"}}>
+        {planView==="agenda" ? (
+          <>
+            {/* Top 3 */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Top 3 today</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {big3.map((task,idx)=>(
+                  <div key={idx} onDragOver={e=>onB3DO(e,idx)} onDrop={e=>onB3Dr(e,idx)} style={{borderRadius:12,border:"1.5px "+(task?"solid":"dashed")+" "+(dragOver==="b3-"+idx?T.accent:task?T.border:T.divider),background:task?T.card:"transparent",minHeight:46,transition:"all 0.15s"}}>
+                    {task?(
+                      <div draggable onDragStart={()=>onB3DS(idx)} onClick={()=>{setSelected(task);setSheetOpen(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer"}}>
+                        <div style={{width:20,height:20,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,fontWeight:700,color:T.accent}}>{idx+1}</span></div>
+                        <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35}}>{task.label}</span>
+                        <span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500,flexShrink:0}}>{formatDue(task.dueDate)}</span>
+                        <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+                        <button onClick={e=>{e.stopPropagation();removeFromBig3(idx);}} style={{background:"none",border:"none",color:T.muted,fontSize:16,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
                       </div>
-                      <button onClick={e=>{e.stopPropagation();canAdd&&addToBig3(task);}} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+(canAdd?T.accent:T.divider),background:canAdd?T.accentSoft:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:canAdd?"pointer":"default",transition:"all 0.2s"}}>
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={canAdd?T.accent:T.muted} strokeWidth="2" strokeLinecap="round"/></svg>
-                      </button>
-                    </div>
-                  );
-                })}
+                    ):(
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}>
+                        <div style={{width:20,height:20,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,color:T.muted}}>{idx+1}</span></div>
+                        <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Drag a task here or tap +</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
+            </div>
+            {/* All tasks */}
+            <div style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>All tasks</div>
+                <div style={{fontSize:11,color:T.muted}}>{listTasks.length} remaining</div>
+              </div>
+              {listTasks.length===0?(
+                <div style={{textAlign:"center",padding:"24px 20px",color:T.muted,fontSize:13,fontStyle:"italic"}}>
+                  {tasks.filter(t=>!t.done).length===0?"No tasks yet — brain dump to add some.":"All tasks assigned to Top 3."}
+                </div>
+              ):(
+                <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
+                  {listTasks.map((task,i)=>{
+                    const canAdd=big3.some(s=>s===null);
+                    return (
+                      <div key={task.id} draggable onDragStart={()=>setDragId(String(task.id))} onClick={()=>{setSelected(task);setSheetOpen(true);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",cursor:"pointer",opacity:dragId===String(task.id)?0.4:1}}>
+                        <AreaIconSVG id={task.area} size={12} color={T.sub}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:14,color:T.text,marginBottom:1}}>{task.label}</div>
+                          <div style={{fontSize:11,color:T.muted,display:"flex",gap:6}}>
+                            {task.dueDate&&<span style={{color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
+                          </div>
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();canAdd&&addToBig3(task);}} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+(canAdd?T.accent:T.divider),background:canAdd?T.accentSoft:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:canAdd?"pointer":"default",transition:"all 0.2s"}}>
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={canAdd?T.accent:T.sub} strokeWidth="2" strokeLinecap="round"/></svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        ):(
+          <CalendarView T={T} big3={big3} routineDone={routineDone} setRoutineDone={setRoutineDone}/>
         )}
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Shutdown routine</div>
-          <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-            {SHUTDOWN.map((r,i)=>(
-              <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",opacity:shutdownDone[r.id]?0.35:1}}>
-                <button onClick={()=>setShutdownDone(p=>({...p,[r.id]:!p[r.id]}))} style={{width:22,height:22,borderRadius:"50%",border:shutdownDone[r.id]?"none":"1.5px solid "+T.muted,background:shutdownDone[r.id]?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
-                  {shutdownDone[r.id]&&<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                </button>
-                <div style={{flex:1}}><div style={{fontSize:14,color:T.text,textDecoration:shutdownDone[r.id]?"line-through":"none"}}>{r.label}</div><div style={{fontSize:11,color:T.muted}}>{r.time} · {r.dur}</div></div>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))}/>
     </div>
