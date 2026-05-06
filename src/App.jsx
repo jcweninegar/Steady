@@ -1842,14 +1842,17 @@ export default function App() {
   const [chatPrompt,setChatPrompt]=useState(null);
   const [chatInitialText,setChatInitialText]=useState("");
   const [chatBarInput,setChatBarInput]=useState("");
-  const [captures,setCaptures]=useState([]);
-  const [tasks,setTasks]=useState(MOCK_TASKS);
+  const [captures,setCaptures]=useState(()=>{ try{ const s=localStorage.getItem("steady_captures"); return s?JSON.parse(s):[]; }catch{return[];} });
+  const [tasks,setTasks]=useState(()=>{ try{ const s=localStorage.getItem("steady_tasks"); return s?JSON.parse(s):MOCK_TASKS; }catch{return MOCK_TASKS;} });
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
   const chatContentRef=useRef(null);
   const recognitionRef=useRef(null);
   const [isListening,setIsListening]=useState(false);
   const T=dark?DARK:LIGHT;
+
+  useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
+  useEffect(()=>{ try{ localStorage.setItem("steady_captures",JSON.stringify(captures)); }catch{} },[captures]);
 
   const toggleVoice=()=>{
     if(isListening){
