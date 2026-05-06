@@ -293,18 +293,23 @@ async function getLifeMapObservation(lifemapAreas, completedTasks) {
 }
 
 
-const CAPTURE_ICONS = {
-  "calendar-event": "📅",
-  "worry": "💭",
-  "idea": "💡",
-  "observation": "👁",
-};
 const URGENCY_COLOR = (u, T) => u==="now" ? T.red : u==="soon" ? T.accent : T.muted;
 
-const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture}, ref) {
+const CaptureSVG = ({type, color}) => {
+  const s = {stroke:color, strokeWidth:"1.3", strokeLinecap:"round"};
+  if(type==="calendar-event") return <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="11" rx="2" {...s}/><path d="M1 7h14M5 1v4M11 1v4" {...s}/></svg>;
+  if(type==="worry")          return <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="7.5" r="5.5" {...s}/><path d="M8 4.5v3M8 9.5v.5" strokeWidth="1.5" stroke={color} strokeLinecap="round"/></svg>;
+  if(type==="idea")           return <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 0 1 2.5 7.1V11h-5V9.1A4 4 0 0 1 8 2zM6 12h4M6.5 14h3" {...s}/></svg>;
+  if(type==="observation")    return <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" {...s}/><circle cx="8" cy="8" r="2" {...s}/></svg>;
+  return <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" {...s}/><path d="M5 8h6M5 5.5h4" {...s}/></svg>;
+};
+
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks}, ref) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [addedSet, setAddedSet] = useState(new Set());
   const bottomRef = useRef(null);
+  const hasRun = useRef(false);
 
   const sendToAPI = async (msgs) => {
     setLoading(true);
@@ -322,13 +327,12 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
     extractFromDump(text).then(result => {
       const tasks = result.tasks || [];
       const captures = result.captures || [];
+      const clarifyingQuestion = tasks.find(t => t.clarifying_question)?.clarifying_question || null;
       if(tasks.length > 0 || captures.length > 0) {
         setMessages(p=>[...p,{
-          role:"ai",
-          isDump: true,
+          role:"ai", isDump:true,
           acknowledgment: result.acknowledgment || "Got it.",
-          tasks,
-          captures,
+          tasks, captures, clarifyingQuestion,
         }]);
         setLoading(false);
         if(onCapture) captures.forEach(c => onCapture(c));
@@ -340,7 +344,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
 
   const sendMessage = (text) => {
     if(!text.trim() || loading) return;
-    const userMsg = {role:"user", text: text.trim(), id: Date.now()};
+    const userMsg = {role:"user", text:text.trim(), id:Date.now()};
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
     runExtract(text.trim(), newMsgs);
@@ -349,6 +353,8 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
   useImperativeHandle(ref, () => ({ sendMessage }));
 
   useEffect(() => {
+    if(hasRun.current) return;
+    hasRun.current = true;
     if(initialText && initialText.trim()) {
       sendMessage(initialText);
     } else {
@@ -358,6 +364,11 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
 
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages, loading]);
 
+  const handleAddTasks = (tasks, msgIdx) => {
+    setAddedSet(p => new Set([...p, msgIdx]));
+    if(onAddTasks) onAddTasks(tasks);
+  };
+
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"24px 24px 16px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
       <div style={{display:"flex",flexDirection:"column"}}>
@@ -366,46 +377,44 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
           const fromEnd = total - 1 - i;
           const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.65 : Math.max(0.15, 0.65 - fromEnd*0.15);
           const blur = fromEnd <= 1 ? 0 : Math.min(3, fromEnd*0.8);
+          const isAdded = addedSet.has(i);
           return (
-            <div key={i} style={{marginBottom:20, transition:"opacity 0.4s,filter 0.4s", opacity, filter:blur?`blur(${blur}px)`:"none"}}>
+            <div key={i} style={{marginBottom:20,transition:"opacity 0.4s,filter 0.4s",opacity,filter:blur?`blur(${blur}px)`:"none"}}>
               {msg.role==="user" ? (
                 <div style={{fontSize:17,fontWeight:400,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.6,whiteSpace:"pre-wrap",paddingBottom:12,borderBottom:"1px solid "+T.divider}}>{msg.text}</div>
               ) : msg.isDump ? (
                 <div>
-                  {/* Acknowledgment */}
                   <div style={{fontSize:14,color:T.sub,fontFamily:"'DM Sans',sans-serif",lineHeight:1.7,marginBottom:14,fontStyle:"italic"}}>{msg.acknowledgment}</div>
 
-                  {/* All items unified */}
                   {(msg.tasks.length + msg.captures.length) > 0 && (
-                    <div style={{marginBottom:14}}>
+                    <div style={{marginBottom:12}}>
                       <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:10}}>
                         {msg.tasks.length + msg.captures.length} item{msg.tasks.length+msg.captures.length!==1?"s":""} found
                       </div>
 
                       {/* Tasks */}
                       {msg.tasks.map((task,j)=>(
-                        <div key={"t"+j} style={{display:"flex",alignItems:"flex-start",gap:12,paddingBottom:11,marginBottom:11,borderBottom:"1px solid "+T.divider}}>
-                          <div style={{width:28,height:28,borderRadius:8,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                            <AreaIconSVG id={task.area||"work"} size={13} color={T.accent}/>
+                        <div key={"t"+j} style={{display:"flex",alignItems:"flex-start",gap:11,paddingBottom:11,marginBottom:11,borderBottom:"1px solid "+T.divider}}>
+                          <div style={{width:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:3}}>
+                            <AreaIconSVG id={task.area||"work"} size={13} color={T.muted}/>
                           </div>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.35,marginBottom:3}}>{task.label}</div>
+                            <div style={{fontSize:14,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.35,marginBottom:3}}>{task.label}</div>
                             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                              <span style={{fontSize:11,color:T.sub,textTransform:"capitalize"}}>{task.area||"work"}</span>
-                              {task.urgency&&<span style={{fontSize:11,fontWeight:600,color:URGENCY_COLOR(task.urgency,T)}}>· {task.urgency}</span>}
-                              {task.dueDate&&<span style={{fontSize:11,color:T.muted}}>· due {task.dueDate}</span>}
-                              {task.duration&&<span style={{fontSize:11,color:T.muted}}>· ~{task.duration}min</span>}
+                              <span style={{fontSize:11,color:T.muted,textTransform:"capitalize"}}>{task.area||"work"}</span>
+                              {task.urgency&&task.urgency!=="someday"&&<span style={{fontSize:11,fontWeight:600,color:URGENCY_COLOR(task.urgency,T)}}>· {task.urgency}</span>}
+                              {task.dueDate&&<span style={{fontSize:11,color:T.muted}}>· {task.dueDate}</span>}
                             </div>
-                            {task.note&&<div style={{fontSize:12,color:T.muted,marginTop:4,lineHeight:1.5,fontStyle:"italic"}}>{task.note}</div>}
+                            {task.note&&<div style={{fontSize:12,color:T.muted,marginTop:3,lineHeight:1.5,fontStyle:"italic"}}>{task.note}</div>}
                           </div>
                         </div>
                       ))}
 
                       {/* Captures */}
                       {msg.captures.map((cap,j)=>(
-                        <div key={"c"+j} style={{display:"flex",alignItems:"flex-start",gap:12,paddingBottom:11,marginBottom:11,borderBottom:j<msg.captures.length-1?"1px solid "+T.divider:"none"}}>
-                          <div style={{width:28,height:28,borderRadius:8,background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,fontSize:13}}>
-                            {CAPTURE_ICONS[cap.type]||"📌"}
+                        <div key={"c"+j} style={{display:"flex",alignItems:"flex-start",gap:11,paddingBottom:j<msg.captures.length-1?11:0,marginBottom:j<msg.captures.length-1?11:0,borderBottom:j<msg.captures.length-1?"1px solid "+T.divider:"none"}}>
+                          <div style={{width:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:3}}>
+                            <CaptureSVG type={cap.type} color={T.muted}/>
                           </div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:14,color:T.sub,lineHeight:1.45}}>{typeof cap==="string"?cap:cap.text}</div>
@@ -416,10 +425,21 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture},
                     </div>
                   )}
 
+                  {/* Clarifying question */}
+                  {msg.clarifyingQuestion && (
+                    <div style={{fontSize:14,color:T.sub,fontFamily:"'Lora',serif",fontStyle:"italic",lineHeight:1.6,marginBottom:12,paddingTop:10,borderTop:"1px solid "+T.divider}}>
+                      {msg.clarifyingQuestion}
+                    </div>
+                  )}
+
                   {/* Add to plan CTA */}
                   {msg.tasks.length > 0 && (
-                    <button style={{width:"100%",padding:"11px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",letterSpacing:"-0.2px"}}>
-                      Add {msg.tasks.length===1?"this task":"these "+msg.tasks.length+" tasks"} to plan →
+                    <button
+                      onClick={()=>handleAddTasks(msg.tasks, i)}
+                      disabled={isAdded}
+                      style={{width:"100%",padding:"11px",borderRadius:12,border:"none",background:isAdded?T.surface:T.text,color:isAdded?T.sub:T.bg,fontSize:14,fontWeight:600,cursor:isAdded?"default":"pointer",fontFamily:"inherit",letterSpacing:"-0.2px",transition:"all 0.3s"}}
+                    >
+                      {isAdded ? "Added to plan ✓" : `Add ${msg.tasks.length===1?"this task":"these "+msg.tasks.length+" tasks"} to plan →`}
                     </button>
                   )}
                 </div>
@@ -1481,7 +1501,9 @@ export default function App() {
 
         {/* ── SHEETS ── */}
         <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
-          {activeSheet==="chat"&&<ChatContent ref={chatContentRef} T={T} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])}/>}
+          {activeSheet==="chat"&&<ChatContent ref={chatContentRef} T={T} initialText={chatInitialText} onCapture={cap=>setCaptures(p=>[...p,cap])} onAddTasks={aiTasks=>{
+            setTasks(p=>[...p,...aiTasks.map(t=>({id:Date.now()+Math.random(),text:t.label,area:t.area||"work",type:"todo",estimate:t.duration?(t.duration+" min"):"30 min",hard:t.urgency==="now",subtasks:[]}))]);
+          }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
           {activeSheet==="plan"&&<PlanContent T={T}/>}

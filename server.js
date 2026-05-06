@@ -45,13 +45,14 @@ Split compound inputs into separate items. Return ONLY valid JSON — no markdow
 Input: ${text}
 
 Rules:
-- Each distinct thing = separate item
-- Tasks = things the user needs to DO (call, pay, clean, email, fix, buy, etc.)
-- Captures = events, feelings, ideas, observations (not action items)
+- Each distinct thing = a separate item
+- Tasks = things the user needs to DO (call, pay, clean, email, fix, buy, schedule, etc.)
+- Captures = events, feelings, ideas, observations that are NOT action items (worries, plans already made, things they noticed)
 - Area options: work, home, health, money, close, contribution, meaning
 - home = cleaning, chores, house stuff; close = kids, family, relationships
-- Infer due date from context. Today = ${today}
-- urgency: "now" = today/urgent, "soon" = this week, "someday" = no rush
+- DO NOT guess or infer urgency or due dates. Only set urgency/dueDate when the user explicitly says a time (e.g. "today", "by Friday", "urgent", "tomorrow", "next week").
+- If timing is not explicitly stated: urgency = "someday", dueDate = null
+- clarifying_question: if there is ONE genuinely unclear thing about this task (what exactly, when, or how urgent), set a short natural question. Ask for AT MOST one question total across ALL tasks — pick the most important one, leave the rest null.
 
 Return this exact JSON:
 {
@@ -69,7 +70,7 @@ Return this exact JSON:
     "text": "the item",
     "type": "calendar-event|worry|idea|observation"
   }],
-  "acknowledgment": "warm one-sentence summary of what you found"
+  "acknowledgment": "warm one-sentence acknowledgment of what they shared (no lists, just a human response)"
 }`;
 
   try {
