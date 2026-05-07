@@ -1891,10 +1891,10 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
           <div style={{flex:1,fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</div>
           {currentRating&&<span style={{fontSize:11,fontWeight:700,color:ratingColor(currentRating)}}>{currentRating}</span>}
         </div>
-        <div style={{display:"flex",padding:"0 20px 12px",gap:4}}>
+        <div style={{margin:"0 20px 12px",display:"flex",background:T.surface,borderRadius:12,padding:3,gap:2}}>
           {[{id:"chat",label:"Chat"},{id:"journal",label:"Journal"}].map(tab=>(
             <button key={tab.id} onClick={()=>setDetailTab(tab.id)}
-              style={{padding:"7px 18px",borderRadius:20,border:"1px solid "+(detailTab===tab.id?T.text:T.border),background:detailTab===tab.id?T.text:"transparent",color:detailTab===tab.id?T.bg:T.sub,fontSize:13,fontWeight:detailTab===tab.id?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+              style={{flex:1,padding:"9px 8px",borderRadius:9,border:"none",background:detailTab===tab.id?T.accent:"transparent",color:detailTab===tab.id?T.accentText:T.muted,fontSize:14,fontWeight:detailTab===tab.id?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.18s"}}>
               {tab.label}
             </button>
           ))}
