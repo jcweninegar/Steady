@@ -1786,6 +1786,18 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
   const [generating,setGenerating]=useState(null);
   const [ratings,setRatings]=useState({});
   const [detailTab,setDetailTab]=useState("chat");
+  const [notes,setNotes]=useState(()=>{
+    const s={};
+    try{ Object.keys(localStorage).filter(k=>k.startsWith("steady_notes_")).forEach(k=>{ try{ s[k.replace("steady_notes_","")]=JSON.parse(localStorage.getItem(k)); }catch{} }); }catch{}
+    return s;
+  });
+  const saveNote=(date,field,val)=>{
+    setNotes(p=>{
+      const updated={...p,[date]:{...(p[date]||{}),[field]:val}};
+      try{ localStorage.setItem("steady_notes_"+date,JSON.stringify(updated[date])); }catch{}
+      return updated;
+    });
+  };
   const ratingColor=r=>r==="Good"?T.green:r==="Hard"?T.red:T.accent;
 
   const getChatMsgs=(date)=>{
@@ -1995,6 +2007,26 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
                 {msgs.length>0&&<button onClick={()=>generateEntry(selectedDate)} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate entry</button>}
               </>
             )}
+          </div>
+          {/* In your own words */}
+          <div style={{background:T.card,borderRadius:16,padding:"16px",marginTop:12,border:"1px solid "+T.border}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:14}}>In your own words</div>
+            {[
+              {key:"happened",  label:"What happened today?",           ph:"Just the highlights…"},
+              {key:"challenging",label:"What was challenging?",          ph:"Be honest with yourself…"},
+              {key:"different", label:"What would you like to be different tomorrow?", ph:"One thing…"},
+            ].map((field,i,arr)=>(
+              <div key={field.key} style={{paddingBottom:i<arr.length-1?14:0,marginBottom:i<arr.length-1?14:0,borderBottom:i<arr.length-1?"1px solid "+T.divider:"none"}}>
+                <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:6}}>{field.label}</div>
+                <textarea
+                  rows={2}
+                  placeholder={field.ph}
+                  value={(notes[selectedDate]||{})[field.key]||""}
+                  onChange={e=>saveNote(selectedDate,field.key,e.target.value)}
+                  style={{width:"100%",border:"none",background:"transparent",color:T.text,fontSize:14,fontFamily:"'DM Sans',sans-serif",lineHeight:1.7,outline:"none",resize:"none",WebkitAppearance:"none"}}
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}
