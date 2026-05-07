@@ -176,16 +176,36 @@ Return ONLY this JSON:
 
 // ── Brain-dump follow-up: task-aware ongoing conversation ────────────────────
 app.post("/api/braindump-chat", async (req, res) => {
-  const { messages, tasks } = req.body;
+  const { messages, tasks, captures } = req.body;
   if (!messages) return res.status(400).json({ error: "messages required" });
 
   const today = new Date().toLocaleDateString("en-CA");
+
+  // ── Navigation intent detection ─────────────────────────────────────────────
+  const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
+  const userText = (lastUserMsg?.content || lastUserMsg?.text || "").toLowerCase();
+
+  let action = null;
+  if (/\b(open|show|go to|take me to|pull up|navigate to|see|view)\b.*\b(plan|agenda|calendar|schedule|today'?s plan)\b/.test(userText) ||
+      /\b(my plan|today'?s plan|work block|routine)\b.*\b(please|now|open|show)\b/.test(userText)) {
+    action = { type: "navigate", screen: "plan" };
+  } else if (/\b(open|show|go to|take me to|pull up|navigate to|see|view)\b.*\b(journal|entries?|my day)\b/.test(userText) ||
+      /\b(today'?s? journal|journal entry|what('?s| is) (in )?my journal|tell me (about )?my (day|journal))\b/.test(userText)) {
+    action = { type: "navigate", screen: "journal" };
+  } else if (/\b(open|show|go to|take me to|pull up|navigate to|see|view)\b.*\b(life\s*map|life\s*areas?|baseline|areas)\b/.test(userText) ||
+      /\blife\s*map\b.*\b(please|now|open|show)\b/.test(userText)) {
+    action = { type: "navigate", screen: "lifemap" };
+  }
 
   const taskList = (tasks || [])
     .filter(t => !t.done)
     .map((t, i) =>
       `[ID:${t.id}] ${i + 1}. "${t.label}" — ${t.area}, ${t.urgency}${t.dueDate ? ", due " + t.dueDate : ""}${t.desc ? ", note: " + t.desc : ""}`
     ).join("\n");
+
+  const captureList = (captures || []).slice(0, 8)
+    .map(c => `"${c.text || c.label || ""}"`)
+    .join(", ");
 
   const system = `You are steady., a calm ADHD support companion and second brain.
 Today: ${today}
@@ -195,19 +215,21 @@ ${knowledgeBase}
 
 The user's current tasks:
 ${taskList || "(none yet)"}
+${captureList ? `\nRecent brain dumps: ${captureList}` : ""}
 
-Your role: help the user refine their task list through natural conversation. Use your knowledge of ADHD to understand why they're struggling, not just what they need to do.
-— When they mention corrections, new details, due dates, combining tasks, or deletions — make those changes.
-— When making ANY task changes, include a COMPLETE updated task array at the very end of your response in this exact XML block (ALL tasks, not just changed ones):
+Your role: help the user through natural conversation. Use your knowledge of ADHD to understand why they're struggling.
+— When they mention task corrections, new details, due dates, combining tasks, or deletions — make those changes.
+— When making ANY task changes, include a COMPLETE updated task array at the very end of your response in this exact XML block:
 <tasks>[{"id":"preserve existing id exactly","label":"...","area":"work|home|health|money|close|contribution|meaning","urgency":"now|soon|someday","dueDate":"YYYY-MM-DD or null","desc":"...","done":false,"subtasks":[],"notes":"","hours":"0h","mins":"30m"}]</tasks>
 — For brand new tasks the user mentions, omit the id field entirely.
-— If the user is just chatting or asking questions with NO task changes needed, do NOT include the <tasks> block.
+— If the user asks to open/show their plan, journal, or life map — confirm you're opening it for them.
+— If the user is just chatting with NO task changes needed, do NOT include the <tasks> block.
 — Keep your reply to 1–3 short sentences. Warm and direct. Never clinical or preachy.`;
 
   try {
     const formatted = messages.map(m => ({
       role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content || "",
+      content: m.content || m.text || "",
     })).filter(m => m.content.trim());
 
     const rawReply = await callAnthropic(system, formatted, 1200);
@@ -221,10 +243,10 @@ Your role: help the user refine their task list through natural conversation. Us
       catch (e) { console.error("Task parse error:", e.message); }
     }
 
-    res.json({ reply, updatedTasks });
+    res.json({ reply, updatedTasks, action });
   } catch (e) {
     console.error("Braindump chat error:", e.message);
-    res.status(500).json({ reply: "I'm here. What would you like to adjust?", updatedTasks: null });
+    res.status(500).json({ reply: "I'm here. What would you like to adjust?", updatedTasks: null, action: null });
   }
 });
 

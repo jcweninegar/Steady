@@ -250,11 +250,11 @@ async function callClaude(messages) {
   return data.reply || "Got it.";
 }
 
-async function callBraindumpChat(history, tasks) {
+async function callBraindumpChat(history, tasks, captures) {
   const res = await fetch("/api/braindump-chat", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ messages: history, tasks }),
+    body: JSON.stringify({ messages: history, tasks, captures }),
   });
   if (!res.ok) throw new Error("API error");
   return res.json();
@@ -369,7 +369,7 @@ const msgToHistory = (m) => {
   return { role: "assistant", content: m.text || "" };
 };
 
-const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly}, ref) {
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly, onAction, captures}, ref) {
   const [messages, setMessages] = useState(savedMessages?.length ? savedMessages : []);
   const [loading, setLoading] = useState(false);
   const [hasExtracted, setHasExtracted] = useState(()=>!!(savedMessages?.some(m=>m.isDump)));
@@ -408,10 +408,13 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     setLoading(true);
     try {
       const history = newMsgs.map(msgToHistory).filter(m => m.content.trim());
-      const result = await callBraindumpChat(history, currentTasks || tasks || []);
+      const result = await callBraindumpChat(history, currentTasks || tasks || [], captures || []);
       setMessages(p => [...p, {role:"ai", text: result.reply || "Got it."}]);
       if (result.updatedTasks && onUpdateTasks) {
         onUpdateTasks(result.updatedTasks);
+      }
+      if (result.action && onAction) {
+        setTimeout(() => onAction(result.action), 700);
       }
     } catch(e) {
       setMessages(p => [...p, {role:"ai", text:"I'm here. What would you like to adjust?"}]);
@@ -1721,11 +1724,17 @@ function HistoryViewContent({T, messages}) {
 }
 
 function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
+  const IC={
+    chat:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H7l-5 5V5z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+    plan:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><rect x="2" y="3" width="16" height="15" rx="2" stroke={c} strokeWidth="1.5"/><path d="M7 1v4M13 1v4M2 8h16" stroke={c} strokeWidth="1.5" strokeLinecap="round"/><path d="M6 12h2M10 12h2M14 12h2M6 15h2M10 15h2" stroke={c} strokeWidth="1.4" strokeLinecap="round"/></svg>,
+    lifemap:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M10 2C7.24 2 5 4.24 5 7c0 4.25 5 9 5 9s5-4.75 5-9c0-2.76-2.24-5-5-5z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"/><circle cx="10" cy="7" r="1.75" stroke={c} strokeWidth="1.3"/></svg>,
+    journal:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 3h12a1 1 0 011 1v13a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" stroke={c} strokeWidth="1.5"/><path d="M2 6h2M2 11h2M2 16h2" stroke={c} strokeWidth="1.5" strokeLinecap="round"/><path d="M7 7h7M7 10.5h7M7 14h4" stroke={c} strokeWidth="1.4" strokeLinecap="round"/></svg>,
+  };
   const NAV=[
-    {id:"chat",    icon:"💬", label:"Chat",      sub:"Today's conversation"},
-    {id:"plan",    icon:"📋", label:"Plan",      sub:"Today's agenda"},
-    {id:"lifemap", icon:"🗺", label:"Life Map",  sub:"Your baseline"},
-    {id:"journal", icon:"📓", label:"Journal",   sub:"Your record"},
+    {id:"chat",    icon:IC.chat,    label:"Chat",      sub:"Today's conversation"},
+    {id:"plan",    icon:IC.plan,    label:"Plan",      sub:"Today's agenda"},
+    {id:"lifemap", icon:IC.lifemap, label:"Life Map",  sub:"Your baseline"},
+    {id:"journal", icon:IC.journal, label:"Journal",   sub:"Your record"},
   ];
   const todayStr=new Date().toISOString().split("T")[0];
   const yesterStr=new Date(Date.now()-86400000).toISOString().split("T")[0];
@@ -1750,7 +1759,7 @@ function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
           {NAV.map(item=>(
             <button key={item.id} onClick={()=>{onClose();setTimeout(()=>onOpen(item.id),50);}}
               style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 14px",borderRadius:10,cursor:"pointer",background:"none",border:"none",textAlign:"left",WebkitTapHighlightColor:"transparent",marginBottom:2}}>
-              <span style={{fontSize:16,lineHeight:1}}>{item.icon}</span>
+              <span style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{item.icon(T.sub)}</span>
               <div>
                 <div style={{fontSize:15,color:T.text,fontWeight:500,lineHeight:1.2}}>{item.label}</div>
                 <div style={{fontSize:11,color:T.sub,marginTop:1}}>{item.sub}</div>
@@ -1796,7 +1805,7 @@ function Observation({T, completedTasks}) {
   return <div style={{fontSize:13,color:T.sub,fontStyle:"italic",lineHeight:1.6,fontFamily:"'Lora',serif"}}>{text}</div>;
 }
 
-function JournalScreen({T, captures, tasks}) {
+function JournalScreen({T, captures, tasks, chatMessages}) {
   const [view,setView]=useState("dashboard");
   const [mode,setMode]=useState("ai");
   const [rating,setRating]=useState(null);
@@ -1804,6 +1813,7 @@ function JournalScreen({T, captures, tasks}) {
   const [generating,setGenerating]=useState(false);
   const [generated,setGenerated]=useState(false);
   const [expanded,setExpanded]=useState(null);
+  const [chatExpanded,setChatExpanded]=useState(false);
   const [highlight,setHighlight]=useState("");
   const [hard,setHard]=useState("");
   const [grateful,setGrateful]=useState("");
@@ -1851,6 +1861,36 @@ function JournalScreen({T, captures, tasks}) {
               <Observation T={T} completedTasks={completedTasks}/>
             </div>
           </div>
+
+          {/* Chat history card */}
+          {(chatMessages||[]).length>0&&(
+            <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
+              <div onClick={()=>setChatExpanded(e=>!e)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
+                <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent}}>Today's conversation</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:T.muted}}>{(chatMessages||[]).filter(m=>m.role==="user").length} messages</span>
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{transform:chatExpanded?"rotate(180deg)":"none",transition:"transform 0.2s"}}><path d="M1 1l4 4 4-4" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+              </div>
+              {chatExpanded&&(
+                <div style={{marginTop:14,maxHeight:320,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+                  {(chatMessages||[]).map(function(msg,i){
+                    const isUser=msg.role==="user";
+                    if(msg.isDump){
+                      return(<div key={i} style={{marginBottom:10}}>
+                        {msg.acknowledgment&&<div style={{fontSize:13,color:T.sub,lineHeight:1.6,marginBottom:6,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{msg.acknowledgment}</div>}
+                        {(msg.formattedTasks||[]).map(function(t,j){return(<div key={j} style={{fontSize:12,color:T.muted,padding:"2px 0",paddingLeft:8}}>→ {t.label}</div>);})}
+                      </div>);
+                    }
+                    return(<div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:6}}>
+                      <div style={{background:isUser?T.text+"1A":T.surface,color:isUser?T.text:T.sub,borderRadius:10,padding:"8px 12px",maxWidth:"88%",fontSize:13,lineHeight:1.6}}>{msg.text}</div>
+                    </div>);
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {completedTasks.length>0&&(
             <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
               <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>What got done</div>
@@ -1921,6 +1961,7 @@ export default function App() {
 
   const saveChatMessages=(msgs)=>{ try{ const d=todayKey(); localStorage.setItem(chatStorageKey(d),JSON.stringify(msgs)); setTodayChatMessages(msgs); setChatDates(prev=>prev.includes(d)?prev:[d,...prev]); }catch{} };
   const openHistoryDate=(date)=>{ try{ const s=localStorage.getItem(chatStorageKey(date)); setHistoryViewMsgs(s?JSON.parse(s):[]); setHistoryViewDate(date); setNavOpen(false); setActiveSheet("history"); }catch{} };
+  const handleChatAction=(action)=>{ if(action?.type==="navigate") setActiveSheet(action.screen); };
 
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
@@ -2010,8 +2051,9 @@ export default function App() {
         {/* ── HOME CONTENT ── */}
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 100px",overflow:"hidden"}}>
           <div style={{textAlign:"center",marginBottom:48}}>
-            <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:12}}>What's on<br/>your mind?</div>
-            <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
+            <div style={{fontSize:13,color:T.muted,marginBottom:20,letterSpacing:"0.2px"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
+            <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:14}}>What's on<br/>your mind?</div>
+            <div style={{fontSize:14,color:T.muted,fontStyle:"italic",lineHeight:1.5}}>Say it out loud.<br/>Watch it become a plan.</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",width:"100%",maxWidth:280}}>
             {CHIPS.map((chip,i)=>(
@@ -2056,8 +2098,10 @@ export default function App() {
             T={T}
             initialText={chatInitialText}
             tasks={tasks}
+            captures={captures}
             savedMessages={todayChatMessages}
             onMessagesChange={saveChatMessages}
+            onAction={handleChatAction}
             onCapture={cap=>setCaptures(p=>[...p,cap])}
             onAddTasks={formattedTasks=>{
               setTasks(p=>[...p,...formattedTasks]);
@@ -2083,7 +2127,7 @@ export default function App() {
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
-          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks}/>}
+          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="history"} onClose={closeSheet} chatBarRef={chatBarRef}
           title={historyViewDate?(()=>{const d=historyViewDate;const t=new Date().toISOString().split("T")[0];const y=new Date(Date.now()-86400000).toISOString().split("T")[0];return d===t?"Today":d===y?"Yesterday":new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});})():"History"}>
