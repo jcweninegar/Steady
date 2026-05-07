@@ -1685,40 +1685,21 @@ function StubContent({T, label}) {
   );
 }
 
-// ── HISTORY VIEW ──────────────────────────────────────────────────────────────
-function HistoryViewContent({T, messages}) {
-  const bottomRef=useRef(null);
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[]);
-
-  if(!messages||messages.length===0) {
-    return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:15,fontStyle:"italic"}}>No messages for this day.</div>;
-  }
+// ── ENTRY CARD ─────────────────────────────────────────────────────────────────
+function EntryCard({T, dateLabel, entry, chatCount, onClick, ratingColor, isToday}) {
   return (
-    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"24px 24px 16px",display:"flex",flexDirection:"column"}}>
-      {messages.map((msg,i)=>{
-        const isUser=msg.role==="user";
-        if(msg.isDump) {
-          return (
-            <div key={i} style={{marginBottom:20}}>
-              {msg.acknowledgment&&<div style={{background:T.card,borderRadius:"18px 18px 18px 4px",padding:"14px 16px",marginBottom:8,fontSize:15,color:T.text,lineHeight:1.6,maxWidth:"85%"}}>{msg.acknowledgment}</div>}
-              {(msg.formattedTasks||[]).map((t,j)=>(
-                <div key={j} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.surface,borderRadius:10,marginBottom:6,border:"1px solid "+T.border}}>
-                  <div style={{width:16,height:16,borderRadius:"50%",border:"2px solid "+T.muted,flexShrink:0}}/>
-                  <span style={{fontSize:14,color:T.text}}>{t.label}</span>
-                </div>
-              ))}
-              {msg.clarifyingQuestion&&<div style={{background:T.card,borderRadius:"4px 18px 18px 18px",padding:"14px 16px",marginTop:8,fontSize:15,color:T.text,lineHeight:1.6,maxWidth:"85%"}}>{msg.clarifyingQuestion}</div>}
-            </div>
-          );
-        }
-        return (
-          <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:10}}>
-            <div style={{background:isUser?T.text:T.card,color:isUser?T.bg:T.text,borderRadius:isUser?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"12px 16px",maxWidth:"82%",fontSize:15,lineHeight:1.6}}>{msg.text}</div>
-          </div>
-        );
-      })}
-      <div style={{fontSize:12,color:T.muted,textAlign:"center",marginTop:12,fontStyle:"italic"}}>End of this day's conversation</div>
-      <div ref={bottomRef}/>
+    <div onClick={onClick} style={{background:T.card,borderRadius:16,padding:"14px 18px",marginBottom:8,border:"1px solid "+T.border,cursor:"pointer"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+        <div style={{fontSize:14,fontWeight:isToday?600:400,color:T.text,fontFamily:"'Lora',serif"}}>{dateLabel}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {entry?.rating&&<span style={{fontSize:10,fontWeight:700,color:ratingColor(entry.rating)}}>{entry.rating}</span>}
+          <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </div>
+      </div>
+      {entry?.narrative
+        ? <div style={{fontSize:12,color:T.muted,lineHeight:1.5,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative.slice(0,90)+"…"}</div>
+        : <div style={{fontSize:12,color:T.muted}}>{chatCount>0?chatCount+" messages · no entry yet":"No conversation yet"}</div>
+      }
     </div>
   );
 }
@@ -1805,136 +1786,161 @@ function Observation({T, completedTasks}) {
   return <div style={{fontSize:13,color:T.sub,fontStyle:"italic",lineHeight:1.6,fontFamily:"'Lora',serif"}}>{text}</div>;
 }
 
-function JournalScreen({T, captures, tasks, chatMessages}) {
-  const [view,setView]=useState("dashboard");
-  const [mode,setMode]=useState("ai");
-  const [rating,setRating]=useState(null);
-  const [narrative,setNarrative]=useState("");
-  const [generating,setGenerating]=useState(false);
-  const [generated,setGenerated]=useState(false);
-  const [expanded,setExpanded]=useState(null);
-  const [chatExpanded,setChatExpanded]=useState(false);
-  const [highlight,setHighlight]=useState("");
-  const [hard,setHard]=useState("");
-  const [grateful,setGrateful]=useState("");
-  const [tomorrow,setTomorrow]=useState("");
-  const completedTasks=(tasks||[]).filter(t=>t.done);
-  const today=new Date().toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"});
-  const AREAS=["work","health","close","contribution","money","home","meaning"];
-  const areaPct=id=>Math.min(100,completedTasks.filter(t=>t.area===id).length*33);
+function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate}) {
+  const todayStr=new Date().toISOString().split("T")[0];
+  const [selectedDate,setSelectedDate]=useState(initialDate||null);
+  const [expandedMonths,setExpandedMonths]=useState({[todayStr.slice(0,7)]:true});
+  const [narratives,setNarratives]=useState(()=>{
+    const s={};
+    try{ Object.keys(localStorage).filter(k=>k.startsWith("steady_entry_")).forEach(k=>{ try{ s[k.replace("steady_entry_","")]=JSON.parse(localStorage.getItem(k)); }catch{} }); }catch{}
+    return s;
+  });
+  const [generating,setGenerating]=useState(null);
+  const [ratings,setRatings]=useState({});
   const ratingColor=r=>r==="Good"?T.green:r==="Hard"?T.red:T.accent;
-  const ENTRIES=[
-    {date:"Yesterday",fullDate:"Monday, May 5",rating:"Good",preview:"Something clicked today. Not dramatically.",narrative:"Something clicked today. Not dramatically. Just the quiet kind of click where you realize at 4pm that you did the things you said you were going to do. The deep work block held. Two weeks in a row. Still have not touched the money stuff. That is the pattern.",done:["Deep work block","Morning movement","Review budget"]},
-    {date:"2 days ago",fullDate:"Sunday, May 4",rating:"Hard",preview:"Some days the only win is showing up.",narrative:"Some days the only win is showing up. Today was one of those. Nothing on the list moved. The kids needed more than the plan had room for. Not a failure. Just a different kind of day. Tomorrow starts fresh.",done:["Morning movement"]},
-  ];
-  const runGenerate=()=>{
-    setGenerating(true);
-    fetch("/api/journal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({captures,completedTasks,rating})})
-      .then(function(r){return r.json();})
-      .then(function(data){setNarrative(data.narrative||"Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);})
-      .catch(function(){setNarrative("Today had its own shape. Something moved. Tomorrow is a clean start.");setGenerating(false);setGenerated(true);});
+
+  const getChatMsgs=(date)=>{
+    if(date===todayStr) return chatMessages||[];
+    try{ const s=localStorage.getItem("steady_chat_"+date); return s?JSON.parse(s):[]; }catch{ return []; }
   };
+  const saveNarrative=(date,text,ratingVal)=>{
+    const entry={narrative:text,rating:ratingVal};
+    try{ localStorage.setItem("steady_entry_"+date,JSON.stringify(entry)); }catch{}
+    setNarratives(p=>({...p,[date]:entry}));
+  };
+  const generateEntry=(date)=>{
+    const msgs=getChatMsgs(date);
+    const ratingVal=ratings[date]||narratives[date]?.rating;
+    setGenerating(date);
+    const chatCaptures=msgs.filter(m=>m.role==="user").map(m=>({text:m.text}));
+    const completedTasksList=date===todayStr?(tasks||[]).filter(t=>t.done):[];
+    fetch("/api/journal",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({captures:[...(date===todayStr?captures||[]:[]),...chatCaptures],completedTasks:completedTasksList,rating:ratingVal})
+    }).then(r=>r.json())
+      .then(d=>{ saveNarrative(date,d.narrative||"Today had its own shape. Something moved.",ratingVal); setGenerating(null); })
+      .catch(()=>{ saveNarrative(date,"Today had its own shape. Something moved.",ratingVal); setGenerating(null); });
+  };
+
+  const allDates=[...new Set([todayStr,...(chatDates||[])])].sort().reverse();
+  const byMonth={};
+  allDates.forEach(d=>{ const mk=d.slice(0,7); if(!byMonth[mk])byMonth[mk]=[]; byMonth[mk].push(d); });
+  const sortedMonths=Object.keys(byMonth).sort().reverse();
+  const multiMonths=sortedMonths.length>1;
+
+  const monthLabel=(mk)=>{ const [y,m]=mk.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
+  const entryDateLabel=(d)=>{
+    if(d===todayStr) return "Today";
+    const yest=new Date(Date.now()-86400000).toISOString().split("T")[0];
+    if(d===yest) return "Yesterday";
+    return new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  };
+
+  // ── LIST VIEW ──
+  if(!selectedDate){
+    return (
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"16px 20px 40px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+          <div style={{fontSize:22,fontWeight:400,fontFamily:"'Lora',serif",color:T.text}}>Journal</div>
+          <div style={{fontSize:11,color:T.muted}}>{new Date().toLocaleDateString([],{weekday:"long",month:"short",day:"numeric"})}</div>
+        </div>
+        {!multiMonths ? (
+          allDates.map(d=>(
+            <EntryCard key={d} T={T} dateLabel={entryDateLabel(d)} entry={narratives[d]}
+              chatCount={getChatMsgs(d).filter(m=>m.role==="user").length}
+              isToday={d===todayStr} onClick={()=>setSelectedDate(d)} ratingColor={ratingColor}/>
+          ))
+        ) : (
+          sortedMonths.map(mk=>{
+            const isOpen=expandedMonths[mk]!==false;
+            return (
+              <div key={mk} style={{marginBottom:16}}>
+                <div onClick={()=>setExpandedMonths(p=>({...p,[mk]:!isOpen}))}
+                  style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 2px",cursor:"pointer",marginBottom:isOpen?8:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text}}>{monthLabel(mk)}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:11,color:T.muted}}>{byMonth[mk].length} days</span>
+                    <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}><path d="M1 1l4 4 4-4" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                </div>
+                {isOpen&&(
+                  <>
+                    {byMonth[mk].map(d=>(
+                      <EntryCard key={d} T={T} dateLabel={entryDateLabel(d)} entry={narratives[d]}
+                        chatCount={getChatMsgs(d).filter(m=>m.role==="user").length}
+                        isToday={d===todayStr} onClick={()=>setSelectedDate(d)} ratingColor={ratingColor}/>
+                    ))}
+                    <button style={{width:"100%",padding:"10px",borderRadius:10,border:"1px dashed "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                      Generate {monthLabel(mk).split(" ")[0]} summary
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  }
+
+  // ── ENTRY DETAIL VIEW ──
+  const msgs=getChatMsgs(selectedDate);
+  const entry=narratives[selectedDate];
+  const currentRating=ratings[selectedDate]||entry?.rating;
+
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-      <div style={{padding:"16px 20px 12px",background:T.bg}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-          <div style={{fontSize:22,fontWeight:400,fontFamily:"'Lora',serif",color:T.text}}>Journal</div>
-          <div style={{fontSize:11,color:T.muted}}>{today}</div>
-        </div>
-        <div style={{display:"flex",background:T.surface,borderRadius:12,padding:3,gap:2}}>
-          {[{id:"dashboard",label:"Today"},{id:"entries",label:"Entries"}].map(function(tab){return(<button key={tab.id} onClick={function(){setView(tab.id);}} style={{flex:1,padding:"8px",borderRadius:9,border:"none",background:view===tab.id?T.card:"transparent",color:view===tab.id?T.text:T.muted,fontSize:13,fontWeight:view===tab.id?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{tab.label}</button>);})}
-        </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 20px 12px",borderBottom:"1px solid "+T.divider}}>
+        <button onClick={()=>setSelectedDate(null)} style={{background:"none",border:"none",cursor:"pointer",padding:4,display:"flex",alignItems:"center"}}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+        <div style={{flex:1,fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</div>
+        {currentRating&&<span style={{fontSize:11,fontWeight:700,color:ratingColor(currentRating)}}>{currentRating}</span>}
       </div>
-      {view==="dashboard"&&(
-        <div style={{padding:"4px 20px 40px"}}>
-          <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:12}}>Today at a glance</div>
-            <div style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div style={{fontSize:12,color:T.sub}}>Tasks completed</div><div style={{fontSize:12,fontWeight:700,color:T.text}}>{completedTasks.length} done</div></div>
-              <div style={{background:T.surface,borderRadius:3,height:5,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,(completedTasks.length/3)*100)+"%",background:T.accent,borderRadius:3}}/></div>
-            </div>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:10,color:T.muted,marginBottom:8,fontWeight:500}}>Life areas</div>
-              {AREAS.map(function(id){return(<div key={id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:5}}><div style={{fontSize:11,color:T.sub,width:80,flexShrink:0,textTransform:"capitalize"}}>{id}</div><div style={{flex:1,background:T.surface,borderRadius:2,height:4,overflow:"hidden"}}><div style={{height:"100%",width:areaPct(id)+"%",background:areaPct(id)>0?T.accent:T.divider,borderRadius:2}}/></div></div>);}) }
-            </div>
-            <div style={{background:T.surface,borderRadius:10,padding:"10px 12px",borderLeft:"2px solid "+T.accent}}>
-              <Observation T={T} completedTasks={completedTasks}/>
-            </div>
+      <div style={{padding:"16px 20px 40px"}}>
+        {/* Rating */}
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:T.muted,marginBottom:8}}>How was this day?</div>
+          <div style={{display:"flex",gap:6}}>
+            {["Good","Okay","Hard"].map(opt=>(
+              <button key={opt} onClick={()=>setRatings(p=>({...p,[selectedDate]:opt}))}
+                style={{flex:1,padding:"9px 4px",borderRadius:10,border:"1px solid "+(currentRating===opt?ratingColor(opt):T.border),background:currentRating===opt?ratingColor(opt)+"18":"transparent",color:currentRating===opt?ratingColor(opt):T.sub,fontSize:13,fontWeight:currentRating===opt?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{opt}</button>
+            ))}
           </div>
-
-          {/* Chat history card */}
-          {(chatMessages||[]).length>0&&(
-            <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
-              <div onClick={()=>setChatExpanded(e=>!e)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
-                <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent}}>Today's conversation</div>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:11,color:T.muted}}>{(chatMessages||[]).filter(m=>m.role==="user").length} messages</span>
-                  <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{transform:chatExpanded?"rotate(180deg)":"none",transition:"transform 0.2s"}}><path d="M1 1l4 4 4-4" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </div>
+        </div>
+        {/* Entry narrative */}
+        <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
+          <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>Entry</div>
+          {entry?.narrative ? (
+            <>
+              <div style={{fontSize:15,color:T.text,lineHeight:1.8,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative}</div>
+              <button onClick={()=>generateEntry(selectedDate)} style={{marginTop:12,width:"100%",padding:"9px",borderRadius:10,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Regenerate</button>
+            </>
+          ) : generating===selectedDate ? (
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0"}}>
+              <div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}</div>
+              <div style={{fontSize:13,color:T.sub,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Writing your entry…</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{fontSize:13,color:T.muted,lineHeight:1.65,marginBottom:12,fontStyle:"italic",fontFamily:"'Lora',serif"}}>
+                {msgs.length===0?"No conversation for this day yet.":`${msgs.filter(m=>m.role==="user").length} messages to draw from.`}
               </div>
-              {chatExpanded&&(
-                <div style={{marginTop:14,maxHeight:320,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-                  {(chatMessages||[]).map(function(msg,i){
-                    const isUser=msg.role==="user";
-                    if(msg.isDump){
-                      return(<div key={i} style={{marginBottom:10}}>
-                        {msg.acknowledgment&&<div style={{fontSize:13,color:T.sub,lineHeight:1.6,marginBottom:6,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{msg.acknowledgment}</div>}
-                        {(msg.formattedTasks||[]).map(function(t,j){return(<div key={j} style={{fontSize:12,color:T.muted,padding:"2px 0",paddingLeft:8}}>→ {t.label}</div>);})}
-                      </div>);
-                    }
-                    return(<div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:6}}>
-                      <div style={{background:isUser?T.text+"1A":T.surface,color:isUser?T.text:T.sub,borderRadius:10,padding:"8px 12px",maxWidth:"88%",fontSize:13,lineHeight:1.6}}>{msg.text}</div>
-                    </div>);
-                  })}
-                </div>
-              )}
+              {msgs.length>0&&<button onClick={()=>generateEntry(selectedDate)} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate entry</button>}
             </div>
           )}
-
-          {completedTasks.length>0&&(
-            <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
-              <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>What got done</div>
-              {completedTasks.map(function(task,i){return(<div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderTop:i>0?"1px solid "+T.divider:"none"}}><div style={{width:18,height:18,borderRadius:"50%",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><svg width="8" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div><div style={{flex:1}}><div style={{fontSize:13,color:T.text,fontWeight:500}}>{task.label}</div><div style={{fontSize:10,color:T.muted,textTransform:"capitalize"}}>{task.area}</div></div></div>);})}
-            </div>
-          )}
-          <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-              <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent}}>Today entry</div>
-              <div style={{display:"flex",background:T.surface,borderRadius:8,padding:2,gap:2}}>
-                {[{id:"ai",label:"AI"},{id:"manual",label:"Write"}].map(function(m){return(<button key={m.id} onClick={function(){setMode(m.id);}} style={{padding:"4px 10px",borderRadius:6,border:"none",background:mode===m.id?T.card:"transparent",color:mode===m.id?T.text:T.muted,fontSize:11,fontWeight:mode===m.id?600:400,cursor:"pointer",fontFamily:"inherit"}}>{m.label}</button>);})}
-              </div>
-            </div>
-            {mode==="ai"&&!generated&&!generating&&(<div><div style={{fontSize:13,color:T.muted,lineHeight:1.65,marginBottom:14,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{(captures||[]).length===0?"No captures yet today.":"Ready to generate from "+((captures||[]).length)+" captures."}</div><button onClick={runGenerate} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate today entry</button></div>)}
-            {mode==="ai"&&generating&&(<div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 0"}}><div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"dots 1.2s "+(i*0.2)+"s infinite"}}/>)}</div><div style={{fontSize:13,color:T.sub,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Writing your entry...</div></div>)}
-            {mode==="ai"&&generated&&(<div style={{fontSize:15,color:T.text,lineHeight:1.8,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{narrative}</div>)}
-            {mode==="manual"&&(<div>{[{label:"What happened today worth noting?",val:highlight,set:setHighlight,ph:"One thing..."},{label:"What was hard?",val:hard,set:setHard,ph:"Be honest..."},{label:"One thing grateful for",val:grateful,set:setGrateful,ph:"Anything..."},{label:"One intention for tomorrow",val:tomorrow,set:setTomorrow,ph:"Not a task..."}].map(function(field,i){return(<div key={i} style={{paddingBottom:12,marginBottom:12,borderBottom:i<3?"1px solid "+T.divider:"none"}}><div style={{fontSize:9,fontWeight:700,color:T.accent,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>{field.label}</div><textarea rows={2} placeholder={field.ph} value={field.val} onChange={function(e){field.set(e.target.value);}} style={{width:"100%",border:"none",background:"transparent",color:T.text,fontSize:14,fontFamily:"'DM Sans',sans-serif",lineHeight:1.7,outline:"none",resize:"none"}}/></div>);})}</div>)}
-          </div>
+        </div>
+        {/* Conversation log */}
+        {msgs.length>0&&(
           <div style={{background:T.card,borderRadius:16,padding:"16px",border:"1px solid "+T.border}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>How was today?</div>
-            <div style={{display:"flex",gap:8,marginBottom:rating?12:0}}>
-              {["Good","Okay","Hard"].map(function(opt){return(<button key={opt} onClick={function(){setRating(opt);}} style={{flex:1,padding:"11px 8px",borderRadius:12,border:"1px solid "+(rating===opt?ratingColor(opt):T.border),background:rating===opt?ratingColor(opt)+"18":"transparent",color:rating===opt?ratingColor(opt):T.sub,fontSize:14,fontWeight:rating===opt?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{opt}</button>);})}
-            </div>
-            {rating&&(<div style={{fontSize:13,color:T.muted,textAlign:"center",fontStyle:"italic",fontFamily:"'Lora',serif"}}>{rating==="Good"?"Good days are worth noting.":rating==="Hard"?"Hard days pass. You showed up.":"Most days are okay. That is okay."}</div>)}
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:12}}>Conversation</div>
+            {msgs.map((msg,i)=>{
+              const isUser=msg.role==="user";
+              if(msg.isDump){return(<div key={i} style={{marginBottom:10}}>{msg.acknowledgment&&<div style={{fontSize:13,color:T.sub,lineHeight:1.6,marginBottom:6,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{msg.acknowledgment}</div>}{(msg.formattedTasks||[]).map((t,j)=><div key={j} style={{fontSize:12,color:T.muted,padding:"2px 0",paddingLeft:8}}>→ {t.label}</div>)}</div>);}
+              return(<div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:6}}><div style={{background:isUser?T.text+"1A":T.surface,color:isUser?T.text:T.sub,borderRadius:10,padding:"8px 12px",maxWidth:"88%",fontSize:13,lineHeight:1.6}}>{msg.text}</div></div>);
+            })}
           </div>
-        </div>
-      )}
-      {view==="entries"&&(
-        <div style={{padding:"4px 20px 40px"}}>
-          <div style={{fontSize:13,color:T.muted,marginBottom:16,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Your record. Everything captured.</div>
-          {ENTRIES.map(function(entry,i){return(
-            <div key={i} style={{background:T.card,borderRadius:16,border:"1px solid "+T.border,marginBottom:12,overflow:"hidden",boxShadow:T.shadow}}>
-              <div onClick={function(){setExpanded(expanded===i?null:i);}} style={{padding:"16px 18px",cursor:"pointer"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div><div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'Lora',serif"}}>{entry.fullDate}</div><div style={{fontSize:11,color:T.muted,marginTop:1}}>{entry.date}</div></div>
-                  <div style={{padding:"3px 10px",borderRadius:20,background:ratingColor(entry.rating)+"18",border:"1px solid "+ratingColor(entry.rating)+"40"}}><span style={{fontSize:11,fontWeight:700,color:ratingColor(entry.rating)}}>{entry.rating}</span></div>
-                </div>
-                <div style={{fontSize:14,color:T.sub,lineHeight:1.7,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{expanded===i?entry.narrative:entry.preview}</div>
-              </div>
-              {expanded===i&&(<div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",background:T.surface}}><div style={{fontSize:9,fontWeight:700,color:T.muted,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>Got done</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{entry.done.map(function(t,j){return(<span key={j} style={{fontSize:11,color:T.sub,background:T.card,padding:"4px 10px",borderRadius:20,border:"1px solid "+T.border}}>{t}</span>);})}</div></div>)}
-            </div>
-          );})}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1956,11 +1962,10 @@ export default function App() {
   const chatStorageKey=(d)=>"steady_chat_"+d;
   const [chatDates,setChatDates]=useState(()=>{ try{ return Object.keys(localStorage).filter(k=>k.startsWith("steady_chat_")).map(k=>k.replace("steady_chat_","")).sort().reverse(); }catch{return[];} });
   const [todayChatMessages,setTodayChatMessages]=useState(()=>{ try{ const s=localStorage.getItem(chatStorageKey(new Date().toISOString().split("T")[0])); return s?JSON.parse(s):null; }catch{return null;} });
-  const [historyViewDate,setHistoryViewDate]=useState(null);
-  const [historyViewMsgs,setHistoryViewMsgs]=useState([]);
+  const [journalInitialDate,setJournalInitialDate]=useState(null);
 
   const saveChatMessages=(msgs)=>{ try{ const d=todayKey(); localStorage.setItem(chatStorageKey(d),JSON.stringify(msgs)); setTodayChatMessages(msgs); setChatDates(prev=>prev.includes(d)?prev:[d,...prev]); }catch{} };
-  const openHistoryDate=(date)=>{ try{ const s=localStorage.getItem(chatStorageKey(date)); setHistoryViewMsgs(s?JSON.parse(s):[]); setHistoryViewDate(date); setNavOpen(false); setActiveSheet("history"); }catch{} };
+  const openHistoryDate=(date)=>{ setJournalInitialDate(date||null); setNavOpen(false); setActiveSheet("journal"); };
   const handleChatAction=(action)=>{ if(action?.type==="navigate") setActiveSheet(action.screen); };
 
   const chatBarRef=useRef(null);
@@ -2119,11 +2124,7 @@ export default function App() {
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
-          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]}/>}
-        </Sheet>
-        <Sheet T={T} open={activeSheet==="history"} onClose={closeSheet} chatBarRef={chatBarRef}
-          title={historyViewDate?(()=>{const d=historyViewDate;const t=new Date().toISOString().split("T")[0];const y=new Date(Date.now()-86400000).toISOString().split("T")[0];return d===t?"Today":d===y?"Yesterday":new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});})():"History"}>
-          {activeSheet==="history"&&<HistoryViewContent T={T} messages={historyViewMsgs}/>}
+          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]} chatDates={chatDates} initialDate={journalInitialDate}/>}
         </Sheet>
 
         <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet} chatDates={chatDates} onViewDate={openHistoryDate}/>
