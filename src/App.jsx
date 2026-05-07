@@ -2053,15 +2053,7 @@ export default function App() {
           <div style={{textAlign:"center",marginBottom:48}}>
             <div style={{fontSize:13,color:T.muted,marginBottom:20,letterSpacing:"0.2px"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
             <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:14}}>What's on<br/>your mind?</div>
-            <div style={{fontSize:14,color:T.muted,fontStyle:"italic",lineHeight:1.5}}>Say it out loud.<br/>Watch it become a plan.</div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",width:"100%",maxWidth:280}}>
-            {CHIPS.map((chip,i)=>(
-              <button key={i} onClick={chip.action} style={{padding:"12px 0",border:"none",borderBottom:"1px solid "+T.divider,background:"transparent",color:T.sub,fontSize:14,fontWeight:400,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",borderRadius:0}}>
-                <span>{chip.label}</span>
-                <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-            ))}
+            <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
           </div>
         </div>
 
