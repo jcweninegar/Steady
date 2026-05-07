@@ -28,7 +28,7 @@ const DARK = {
 const AREAS = [
   {id:"work",         label:"Work",                  research:"Adults who report meaningful work are 2x as likely to thrive overall.",          example:"I do focused work 3x per week and leave feeling capable.",        checkin:"Are you getting into flow at least once a week?"},
   {id:"health",       label:"Health",                research:"Regular movement is the single strongest predictor of long-term wellbeing.",     example:"I move my body daily and sleep 7+ hours most nights.",            checkin:"Is your body getting what it needs to keep up with your mind?"},
-  {id:"relationships", label:"Relationships",          research:"People with 1-2 deep relationships are as happy as those with many.",           example:"I feel genuinely known by at least one person in my life.",      checkin:"Do the people closest to you actually know what's going on for you?"},
+  {id:"relationships", label:"Close Relationships",     research:"People with 1-2 deep relationships are as happy as those with many.",           example:"I feel genuinely known by at least one person in my life.",      checkin:"Do the people closest to you actually know what's going on for you?"},
   {id:"contribution", label:"Contribution",          research:"Giving time or skill to others predicts life satisfaction independent of income.",example:"I contribute something weekly — even small acts count.",          checkin:"Are you giving something back, even occasionally?"},
   {id:"money",        label:"Money",                 research:"Financial stress is the top stressor for adults with ADHD. Stability matters more than amount.",example:"I have a system — even a rough one — for tracking what comes in and out.",checkin:"Is money stress background noise or front-of-mind?"},
   {id:"home",         label:"Home",                  research:"Environmental order reduces cognitive load, which matters especially for ADHD brains.",example:"My home is calm enough that I can find things and think clearly.",  checkin:"Does your space support you or fight you?"},
@@ -871,7 +871,7 @@ const AreaIconSVG = ({id, size=16, color="currentColor"}) => {
 
 const AreaIcon = AreaIconSVG;
 
-const AREA_LABELS = {work:"Work",home:"Home",health:"Health",money:"Money",relationships:"Relationships",contribution:"Contribution",meaning:"Meaning"};
+const AREA_LABELS = {work:"Work",home:"Home",health:"Health",money:"Money",relationships:"Close Relationships",contribution:"Contribution",meaning:"Meaning"};
 
 function ExtractedTasksFlow({T, message, onTaskConfirmed}) {
   const [idx, setIdx] = useState(0);
