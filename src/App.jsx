@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useAuth } from "./lib/AuthContext";
 import AuthScreen from "./screens/AuthScreen";
+import { supabase } from "./lib/supabase";
 
 const LIGHT = {
   bg:"#F7F4EF", card:"#FFFFFF", border:"rgba(0,0,0,0.07)", surface:"#F0EDE7",
@@ -250,11 +251,11 @@ async function callClaude(messages) {
   return data.reply || "Got it.";
 }
 
-async function callBraindumpChat(history, tasks, captures) {
+async function callBraindumpChat(history, tasks, captures, userId) {
   const res = await fetch("/api/braindump-chat", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ messages: history, tasks, captures }),
+    body: JSON.stringify({ messages: history, tasks, captures, userId }),
   });
   if (!res.ok) throw new Error("API error");
   return res.json();
@@ -289,14 +290,14 @@ async function extractFromDump(rawText) {
 
 
 // ── MORNING TOP 3 SUGGESTION — the steady algorithm ──────────────────────────
-async function suggestTop3(tasks, captures, dayRating) {
+async function suggestTop3(tasks, captures, dayRating, userId) {
   const available = tasks.filter(t => !t.done).slice(0, 20);
   if (available.length === 0) return { tasks: [], framing: {}, observation: null };
   try {
     const res = await fetch("/api/top3", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ tasks: available, captures: captures || [], dayRating: dayRating || null })
+      body: JSON.stringify({ tasks: available, captures: captures || [], dayRating: dayRating || null, userId })
     });
     const data = await res.json();
     const picks = data.picks || [];
@@ -369,7 +370,7 @@ const msgToHistory = (m) => {
   return { role: "assistant", content: m.text || "" };
 };
 
-const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly, onAction, captures}, ref) {
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly, onAction, captures, userId}, ref) {
   const [messages, setMessages] = useState(savedMessages?.length ? savedMessages : []);
   const [loading, setLoading] = useState(false);
   const [hasExtracted, setHasExtracted] = useState(()=>!!(savedMessages?.some(m=>m.isDump)));
@@ -408,7 +409,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     setLoading(true);
     try {
       const history = newMsgs.map(msgToHistory).filter(m => m.content.trim());
-      const result = await callBraindumpChat(history, currentTasks || tasks || [], captures || []);
+      const result = await callBraindumpChat(history, currentTasks || tasks || [], captures || [], userId);
       setMessages(p => [...p, {role:"ai", text: result.reply || "Got it."}]);
       if (result.updatedTasks && onUpdateTasks) {
         onUpdateTasks(result.updatedTasks);
@@ -1489,7 +1490,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   );
 }
 
-function PlanContent({T, tasks, setTasks, captures}) {
+function PlanContent({T, tasks, setTasks, captures, userId}) {
   const [planView,setPlanView]=useState("agenda");
   const [workTasks,setWorkTasks]=useState([]);
   const [taskFraming,setTaskFraming]=useState({});
@@ -1520,7 +1521,7 @@ function PlanContent({T, tasks, setTasks, captures}) {
   const onWBDrop=(e)=>{ e.preventDefault();if(dragId){const task=listTasks.find(t=>String(t.id)===dragId);if(task)addToWork(task);}setDragId(null); };
   useEffect(()=>{
     if(workTasks.length===0&&tasks.filter(t=>!t.done).length>0){
-      suggestTop3(tasks, captures||[], null).then(result=>{
+      suggestTop3(tasks, captures||[], null, userId).then(result=>{
         if(result.tasks&&result.tasks.length>0) setWorkTasks(result.tasks.slice(0,3).filter(Boolean));
         if(result.framing) setTaskFraming(result.framing);
         if(result.observation) setPlanObservation(result.observation);
@@ -1774,7 +1775,7 @@ function Observation({T, completedTasks}) {
   return <div style={{fontSize:13,color:T.sub,fontStyle:"italic",lineHeight:1.6,fontFamily:"'Lora',serif"}}>{text}</div>;
 }
 
-function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate}) {
+function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate, userId}) {
   const todayStr=new Date().toISOString().split("T")[0];
   const [selectedDate,setSelectedDate]=useState(initialDate||new Date().toISOString().split("T")[0]);
   const [expandedMonths,setExpandedMonths]=useState({[todayStr.slice(0,7)]:true});
@@ -1795,6 +1796,7 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
     setNotes(p=>{
       const updated={...p,[date]:{...(p[date]||{}),[field]:val}};
       try{ localStorage.setItem("steady_notes_"+date,JSON.stringify(updated[date])); }catch{}
+      upsertJournalEntry(date,{notes:updated[date]});
       return updated;
     });
   };
@@ -1819,6 +1821,34 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
     const entry={narrative:text,rating:ratingVal};
     try{ localStorage.setItem("steady_entry_"+date,JSON.stringify(entry)); }catch{}
     setNarratives(p=>({...p,[date]:entry}));
+    upsertJournalEntry(date,{narrative:text,rating:ratingVal});
+  };
+
+  const upsertJournalEntry=async(date,overrides={})=>{
+    if(!userId||userId==="dev") return;
+    const AREA_IDS=["work","health","relationships","contribution","money","home","meaning"];
+    const dayMsgs=date===todayStr?chatMessages||[]:
+      (()=>{ try{ const s=localStorage.getItem("steady_chat_"+date); return s?JSON.parse(s):[]; }catch{ return []; }})();
+    const dayCaptures=date===todayStr?(captures||[]):[];
+    const dayDone=date===todayStr?(tasks||[]).filter(t=>t.done):[];
+    const areaActivity=Object.fromEntries(AREA_IDS.map(id=>[id,dayDone.filter(t=>t.area===id).length]));
+    const curNarrative=overrides.narrative??narratives[date]?.narrative??null;
+    const curRating=overrides.rating??ratings[date]??narratives[date]?.rating??null;
+    const curNotes=overrides.notes??notes[date]??{};
+    const row={
+      user_id:userId,
+      date,
+      chat_messages:dayMsgs.filter(m=>m.role==="user"||m.role==="ai"||m.role==="assistant")
+        .map(m=>({role:m.role,text:m.text||m.content||"",ts:m.ts||null})),
+      captures:dayCaptures.slice(0,20).map(c=>({text:c.text||c.label||""})),
+      completed_tasks:dayDone.map(t=>({label:t.label,area:t.area})),
+      life_area_activity:areaActivity,
+      day_rating:curRating,
+      ai_narrative:curNarrative,
+      user_notes:curNotes,
+      updated_at:new Date().toISOString(),
+    };
+    try{ await supabase.from("journal_entries").upsert(row,{onConflict:"user_id,date"}); }catch(e){ console.error("journal upsert:",e); }
   };
   const generateEntry=(date)=>{
     const msgs=getChatMsgs(date);
@@ -1991,7 +2021,7 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
             <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>How was today?</div>
             <div style={{display:"flex",gap:6,marginBottom:currentRating?10:0}}>
               {["Good","Okay","Hard"].map(opt=>(
-                <button key={opt} onClick={()=>setRatings(p=>({...p,[selectedDate]:opt}))}
+                <button key={opt} onClick={()=>{ setRatings(p=>({...p,[selectedDate]:opt})); upsertJournalEntry(selectedDate,{rating:opt}); }}
                   style={{flex:1,padding:"10px 4px",borderRadius:12,border:"1px solid "+(currentRating===opt?ratingColor(opt):T.border),background:currentRating===opt?ratingColor(opt)+"18":"transparent",color:currentRating===opt?ratingColor(opt):T.sub,fontSize:13,fontWeight:currentRating===opt?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{opt}</button>
               ))}
             </div>
@@ -2191,6 +2221,7 @@ export default function App() {
           {activeSheet==="chat"&&<ChatContent
             ref={chatContentRef}
             T={T}
+            userId={session?.user?.id}
             initialText={chatInitialText}
             tasks={tasks}
             captures={captures}
@@ -2216,13 +2247,13 @@ export default function App() {
           />}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
-          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures}/>}
+          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
-          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]} chatDates={chatDates} initialDate={journalInitialDate}/>}
+          {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]} chatDates={chatDates} initialDate={journalInitialDate} userId={session?.user?.id}/>}
         </Sheet>
 
         <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet} chatDates={chatDates} onViewDate={openHistoryDate}/>

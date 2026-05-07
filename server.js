@@ -4,6 +4,44 @@ import { knowledgeBase } from "./knowledge/index.js";
 import { fileURLToPath } from "url";
 import path from "path";
 import { existsSync } from "fs";
+import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://ebgowtfbelmhkejjyssl.supabase.co";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { realtime: { transport: ws } })
+  : null;
+
+async function getJournalHistory(userId) {
+  if (!supabaseAdmin || !userId || userId === "dev") return [];
+  try {
+    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0];
+    const { data, error } = await supabaseAdmin
+      .from("journal_entries")
+      .select("date,chat_messages,captures,completed_tasks,life_area_activity,day_rating,user_notes")
+      .eq("user_id", userId)
+      .gte("date", cutoff)
+      .order("date", { ascending: false })
+      .limit(14);
+    if (error || !data) return [];
+    return data;
+  } catch { return []; }
+}
+
+function formatHistoryForAI(history) {
+  if (!history || history.length === 0) return "";
+  const lines = history.map(e => {
+    const done = (e.completed_tasks || []).map(t => t.label).join(", ") || "nothing completed";
+    const mind = (e.captures || []).map(c => c.text).slice(0, 5).join("; ") || "no captures";
+    const chat = (e.chat_messages || []).map(m => m.text).slice(0, 4).join("; ") || "";
+    const notes = e.user_notes || {};
+    const noteParts = [notes.happened, notes.challenging, notes.different].filter(Boolean).join(" | ");
+    const areas = e.life_area_activity ? Object.entries(e.life_area_activity).filter(([,v])=>v>0).map(([k,v])=>`${k}(${v})`).join(",") : "";
+    return `[${e.date}] Rating: ${e.day_rating||"?"} | Done: ${done} | Areas: ${areas||"none"} | Mind: "${mind}"${chat?` | Said: "${chat.slice(0,120)}"`:""} ${noteParts?`| Notes: ${noteParts}`:""}`.trim();
+  });
+  return `\n━━━ USER HISTORY (last 14 days) ━━━\nThis is factual data about who this person is, what they've been working on, and how their days have been going. Use it to personalise all advice, spot patterns, and understand what matters to them.\n\n${lines.join("\n")}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -176,10 +214,12 @@ Return ONLY this JSON:
 
 // ── Brain-dump follow-up: task-aware ongoing conversation ────────────────────
 app.post("/api/braindump-chat", async (req, res) => {
-  const { messages, tasks, captures } = req.body;
+  const { messages, tasks, captures, userId } = req.body;
   if (!messages) return res.status(400).json({ error: "messages required" });
 
   const today = new Date().toLocaleDateString("en-CA");
+  const history = await getJournalHistory(userId);
+  const historyBlock = formatHistoryForAI(history);
 
   // ── Navigation intent detection ─────────────────────────────────────────────
   const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
@@ -212,6 +252,7 @@ Today: ${today}
 
 KNOWLEDGE BASE — use this to inform all responses:
 ${knowledgeBase}
+${historyBlock}
 
 The user's current tasks:
 ${taskList || "(none yet)"}
@@ -316,7 +357,7 @@ Rules:
 
 // ── Top 3 suggestion — the steady algorithm ───────────────────────────────────
 app.post("/api/top3", async (req, res) => {
-  const { tasks, lifeAreas, captures, dayRating } = req.body;
+  const { tasks, lifeAreas, captures, dayRating, userId } = req.body;
   const nowMs = Date.now();
   const available = (tasks || []).filter(t => !t.done).slice(0, 20);
   if (available.length === 0) return res.json({ picks: [], observation: null });
@@ -352,8 +393,11 @@ app.post("/api/top3", async (req, res) => {
   }).join("\n");
 
   const todayStr = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
+  const history = await getJournalHistory(userId);
+  const historyBlock = formatHistoryForAI(history);
 
   const system = `${knowledgeBase}
+${historyBlock}
 
 ━━━ THE STEADY ALGORITHM ━━━
 You are the steady. prioritization engine. Select the 3 best tasks for this user today using the algorithm below.

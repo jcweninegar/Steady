@@ -33,9 +33,26 @@ async function runSQL(sql, label = "migration") {
 // Run migrations in order
 async function main() {
   console.log(`Running migrations on project: ${PROJECT_REF}\n`);
-  // Add new migrations here as the app grows
-  // Example:
-  // await runSQL(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority text DEFAULT 'normal';`, "Add priority to tasks");
+
+  // journal_entries: structured daily records for AI personalization
+  await runSQL(`
+    ALTER TABLE journal_entries
+      ADD COLUMN IF NOT EXISTS date          text,
+      ADD COLUMN IF NOT EXISTS chat_messages jsonb        DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS captures      jsonb        DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS completed_tasks jsonb      DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS life_area_activity jsonb   DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS day_rating    text,
+      ADD COLUMN IF NOT EXISTS ai_narrative  text,
+      ADD COLUMN IF NOT EXISTS user_notes    jsonb        DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS updated_at    timestamptz  DEFAULT now();
+  `, "journal_entries: add structured columns");
+
+  await runSQL(`
+    CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_user_date_idx
+      ON journal_entries (user_id, date);
+  `, "journal_entries: unique index on (user_id, date)");
+
   console.log("\nAll migrations complete.");
 }
 
