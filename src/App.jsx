@@ -369,10 +369,10 @@ const msgToHistory = (m) => {
   return { role: "assistant", content: m.text || "" };
 };
 
-const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks}, ref) {
-  const [messages, setMessages] = useState([]);
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly}, ref) {
+  const [messages, setMessages] = useState(savedMessages?.length ? savedMessages : []);
   const [loading, setLoading] = useState(false);
-  const [hasExtracted, setHasExtracted] = useState(false);
+  const [hasExtracted, setHasExtracted] = useState(()=>!!(savedMessages?.some(m=>m.isDump)));
   const [pendingClarification, setPendingClarification] = useState(null);
   const [chatSheetTask, setChatSheetTask] = useState(null);
   const [chatSheetOpen, setChatSheetOpen] = useState(false);
@@ -399,6 +399,9 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
 
   const scrollToBottom = () => bottomRef.current?.scrollIntoView({behavior:"smooth"});
   useEffect(scrollToBottom, [messages, loading]);
+
+  // Persist messages whenever they change
+  useEffect(()=>{ if(messages.length>0 && onMessagesChange) onMessagesChange(messages); },[messages]);
 
   // After extraction: all follow-up messages go here
   const sendToChat = async (newMsgs, currentTasks) => {
@@ -506,7 +509,12 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
   useEffect(() => {
     if (hasRun.current) return;
     hasRun.current = true;
-    if (initialText && initialText.trim()) {
+    if (savedMessages?.length > 0) {
+      // Today's chat already exists — restore it, then send any new input
+      if (initialText && initialText.trim()) {
+        sendMessage(initialText);
+      }
+    } else if (initialText && initialText.trim()) {
       sendMessage(initialText);
     } else {
       setMessages([{role:"ai", text:"What's on your mind? Just dump it all — tasks, worries, ideas, anything."}]);
@@ -1674,41 +1682,99 @@ function StubContent({T, label}) {
   );
 }
 
-function NavDrawer({T, open, onClose, onOpen}) {
+// ── HISTORY VIEW ──────────────────────────────────────────────────────────────
+function HistoryViewContent({T, messages}) {
+  const bottomRef=useRef(null);
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[]);
+
+  if(!messages||messages.length===0) {
+    return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:15,fontStyle:"italic"}}>No messages for this day.</div>;
+  }
+  return (
+    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"24px 24px 16px",display:"flex",flexDirection:"column"}}>
+      {messages.map((msg,i)=>{
+        const isUser=msg.role==="user";
+        if(msg.isDump) {
+          return (
+            <div key={i} style={{marginBottom:20}}>
+              {msg.acknowledgment&&<div style={{background:T.card,borderRadius:"18px 18px 18px 4px",padding:"14px 16px",marginBottom:8,fontSize:15,color:T.text,lineHeight:1.6,maxWidth:"85%"}}>{msg.acknowledgment}</div>}
+              {(msg.formattedTasks||[]).map((t,j)=>(
+                <div key={j} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.surface,borderRadius:10,marginBottom:6,border:"1px solid "+T.border}}>
+                  <div style={{width:16,height:16,borderRadius:"50%",border:"2px solid "+T.muted,flexShrink:0}}/>
+                  <span style={{fontSize:14,color:T.text}}>{t.label}</span>
+                </div>
+              ))}
+              {msg.clarifyingQuestion&&<div style={{background:T.card,borderRadius:"4px 18px 18px 18px",padding:"14px 16px",marginTop:8,fontSize:15,color:T.text,lineHeight:1.6,maxWidth:"85%"}}>{msg.clarifyingQuestion}</div>}
+            </div>
+          );
+        }
+        return (
+          <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:10}}>
+            <div style={{background:isUser?T.text:T.card,color:isUser?T.bg:T.text,borderRadius:isUser?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"12px 16px",maxWidth:"82%",fontSize:15,lineHeight:1.6}}>{msg.text}</div>
+          </div>
+        );
+      })}
+      <div style={{fontSize:12,color:T.muted,textAlign:"center",marginTop:12,fontStyle:"italic"}}>End of this day's conversation</div>
+      <div ref={bottomRef}/>
+    </div>
+  );
+}
+
+function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
   const NAV=[
-    {id:"chat",    label:"Home",      sub:"What's on your mind"},
-    {id:"plan",    label:"Plan",      sub:"Today's agenda"},
-    {id:"lifemap", label:"Life Map",  sub:"Your baseline"},
-    {id:"journal", label:"Journal",   sub:"Your record"},
+    {id:"chat",    icon:"💬", label:"Chat",      sub:"Today's conversation"},
+    {id:"plan",    icon:"📋", label:"Plan",      sub:"Today's agenda"},
+    {id:"lifemap", icon:"🗺", label:"Life Map",  sub:"Your baseline"},
+    {id:"journal", icon:"📓", label:"Journal",   sub:"Your record"},
   ];
-  const ChevronRight=({c})=><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={c||"#C4BFB8"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+  const todayStr=new Date().toISOString().split("T")[0];
+  const yesterStr=new Date(Date.now()-86400000).toISOString().split("T")[0];
+  const dateLabel=(d)=>{
+    if(d===todayStr) return "Today";
+    if(d===yesterStr) return "Yesterday";
+    return new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  };
   return (
     <>
-      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(4px)",transition:"opacity 0.3s",opacity:open?1:0,pointerEvents:open?"auto":"none"}}/>
-      <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:501,background:T.card,borderRadius:"20px 20px 0 0",boxShadow:"0 -8px 40px rgba(0,0,0,0.15)",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:open?"translateY(0)":"translateY(100%)"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px 10px"}}>
-          <div style={{width:32}}/>
-          <div style={{width:36,height:4,borderRadius:2,background:T.divider}}/>
-          <button onClick={onClose} style={{width:32,height:32,borderRadius:"50%",border:"1px solid "+T.border,background:T.surface,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-            <svg width="14" height="14" viewBox="0 0 18 18" fill="none"><path d="M2 2l14 14M16 2L2 16" stroke={T.muted} strokeWidth="1.8" strokeLinecap="round"/></svg>
-          </button>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(6px)",transition:"opacity 0.28s",opacity:open?1:0,pointerEvents:open?"auto":"none"}}/>
+      {/* Left sidebar */}
+      <div style={{position:"fixed",top:0,left:0,bottom:0,width:272,zIndex:501,background:T.card,boxShadow:"6px 0 40px rgba(0,0,0,0.18)",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:open?"translateX(0)":"translateX(-100%)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+        {/* Logo */}
+        <div style={{padding:"60px 22px 18px",borderBottom:"1px solid "+T.divider}}>
+          <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-0.3px"}}>steady<span style={{color:T.accent}}>.</span></div>
+          <div style={{fontSize:12,color:T.sub,marginTop:3}}>Your ADHD support system</div>
         </div>
-        <div style={{padding:"4px 24px 12px",borderBottom:"1px solid "+T.divider}}>
-          <div style={{fontSize:18,fontWeight:600,color:T.text,fontFamily:"'Lora',serif"}}>steady<span style={{color:T.accent}}>.</span></div>
-          <div style={{fontSize:11,color:T.sub,marginTop:1}}>Your second brain</div>
-        </div>
-        <div style={{padding:"4px 0"}}>
+        {/* Nav items */}
+        <div style={{padding:"10px 10px 0"}}>
           {NAV.map(item=>(
-            <div key={item.id} onClick={()=>{onClose();setTimeout(()=>onOpen(item.id),50);}} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"15px 24px",cursor:"pointer",borderBottom:"1px solid "+T.divider}}>
+            <button key={item.id} onClick={()=>{onClose();setTimeout(()=>onOpen(item.id),50);}}
+              style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 14px",borderRadius:10,cursor:"pointer",background:"none",border:"none",textAlign:"left",WebkitTapHighlightColor:"transparent",marginBottom:2}}>
+              <span style={{fontSize:16,lineHeight:1}}>{item.icon}</span>
               <div>
-                <div style={{fontSize:16,color:T.text,fontWeight:500}}>{item.label}</div>
-                <div style={{fontSize:12,color:T.muted,marginTop:1}}>{item.sub}</div>
+                <div style={{fontSize:15,color:T.text,fontWeight:500,lineHeight:1.2}}>{item.label}</div>
+                <div style={{fontSize:11,color:T.sub,marginTop:1}}>{item.sub}</div>
               </div>
-              <ChevronRight c={T.muted}/>
-            </div>
+            </button>
           ))}
         </div>
-        <div style={{height:36}}/>
+        {/* History section */}
+        {chatDates.length>0&&(
+          <div style={{marginTop:18,flex:1}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.4px",textTransform:"uppercase",padding:"0 22px 8px"}}>History</div>
+            {chatDates.map(date=>(
+              <button key={date} onClick={()=>onViewDate(date)}
+                style={{display:"block",width:"100%",textAlign:"left",padding:"10px 22px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:T.text,fontWeight:date===todayStr?500:400,WebkitTapHighlightColor:"transparent"}}>
+                {dateLabel(date)}
+                {date===todayStr&&<span style={{fontSize:10,color:T.accent,marginLeft:7,fontWeight:600}}>live</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {chatDates.length===0&&(
+          <div style={{padding:"20px 22px",color:T.muted,fontSize:13,fontStyle:"italic"}}>No history yet — start chatting!</div>
+        )}
+        <div style={{height:40}}/>
       </div>
     </>
   );
@@ -1844,6 +1910,18 @@ export default function App() {
   const [chatBarInput,setChatBarInput]=useState("");
   const [captures,setCaptures]=useState(()=>{ try{ const s=localStorage.getItem("steady_captures"); return s?JSON.parse(s):[]; }catch{return[];} });
   const [tasks,setTasks]=useState(()=>{ try{ const s=localStorage.getItem("steady_tasks"); return s?JSON.parse(s):MOCK_TASKS; }catch{return MOCK_TASKS;} });
+
+  // ── Chat history ──
+  const todayKey=()=>new Date().toISOString().split("T")[0];
+  const chatStorageKey=(d)=>"steady_chat_"+d;
+  const [chatDates,setChatDates]=useState(()=>{ try{ return Object.keys(localStorage).filter(k=>k.startsWith("steady_chat_")).map(k=>k.replace("steady_chat_","")).sort().reverse(); }catch{return[];} });
+  const [todayChatMessages,setTodayChatMessages]=useState(()=>{ try{ const s=localStorage.getItem(chatStorageKey(new Date().toISOString().split("T")[0])); return s?JSON.parse(s):null; }catch{return null;} });
+  const [historyViewDate,setHistoryViewDate]=useState(null);
+  const [historyViewMsgs,setHistoryViewMsgs]=useState([]);
+
+  const saveChatMessages=(msgs)=>{ try{ const d=todayKey(); localStorage.setItem(chatStorageKey(d),JSON.stringify(msgs)); setTodayChatMessages(msgs); setChatDates(prev=>prev.includes(d)?prev:[d,...prev]); }catch{} };
+  const openHistoryDate=(date)=>{ try{ const s=localStorage.getItem(chatStorageKey(date)); setHistoryViewMsgs(s?JSON.parse(s):[]); setHistoryViewDate(date); setNavOpen(false); setActiveSheet("history"); }catch{} };
+
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
   const chatContentRef=useRef(null);
@@ -1972,15 +2050,16 @@ export default function App() {
         </div>
 
         {/* ── SHEETS ── */}
-        <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Brain Dump">
+        <Sheet T={T} open={activeSheet==="chat"} onClose={closeSheet} chatBarRef={chatBarRef} title="Chat">
           {activeSheet==="chat"&&<ChatContent
             ref={chatContentRef}
             T={T}
             initialText={chatInitialText}
             tasks={tasks}
+            savedMessages={todayChatMessages}
+            onMessagesChange={saveChatMessages}
             onCapture={cap=>setCaptures(p=>[...p,cap])}
             onAddTasks={formattedTasks=>{
-              // Tasks arrive pre-formatted with IDs from ChatContent
               setTasks(p=>[...p,...formattedTasks]);
             }}
             onRemoveTask={id=>setTasks(p=>p.filter(t=>t.id!==id))}
@@ -2006,8 +2085,12 @@ export default function App() {
         <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
           {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks}/>}
         </Sheet>
+        <Sheet T={T} open={activeSheet==="history"} onClose={closeSheet} chatBarRef={chatBarRef}
+          title={historyViewDate?(()=>{const d=historyViewDate;const t=new Date().toISOString().split("T")[0];const y=new Date(Date.now()-86400000).toISOString().split("T")[0];return d===t?"Today":d===y?"Yesterday":new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});})():"History"}>
+          {activeSheet==="history"&&<HistoryViewContent T={T} messages={historyViewMsgs}/>}
+        </Sheet>
 
-        <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet}/>
+        <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet} chatDates={chatDates} onViewDate={openHistoryDate}/>
       </div>
     </>
   );
