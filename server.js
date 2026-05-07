@@ -55,8 +55,8 @@ INPUT: "${text}"
 ━━━ CLASSIFICATION ━━━
 - Tasks = things the user needs to DO (call, pay, email, review, buy, schedule, fix, pick up, text, etc.)
 - Captures = events/feelings/ideas/observations NOT requiring action right now (worries, calendar events already set, things they noticed, plans already made)
-- Area options: work | home | health | money | close | contribution | meaning
-  · close = family, kids, relationships · home = chores, house stuff
+- Area options: work | home | health | money | relationships | contribution | meaning
+  · relationships = family, kids, close relationships · home = chores, house stuff
 
 ━━━ TITLE (label) ━━━
 - Start with a strong action verb. Be as specific as possible.
@@ -220,7 +220,7 @@ ${captureList ? `\nRecent brain dumps: ${captureList}` : ""}
 Your role: help the user through natural conversation. Use your knowledge of ADHD to understand why they're struggling.
 — When they mention task corrections, new details, due dates, combining tasks, or deletions — make those changes.
 — When making ANY task changes, include a COMPLETE updated task array at the very end of your response in this exact XML block:
-<tasks>[{"id":"preserve existing id exactly","label":"...","area":"work|home|health|money|close|contribution|meaning","urgency":"now|soon|someday","dueDate":"YYYY-MM-DD or null","desc":"...","done":false,"subtasks":[],"notes":"","hours":"0h","mins":"30m"}]</tasks>
+<tasks>[{"id":"preserve existing id exactly","label":"...","area":"work|home|health|money|relationships|contribution|meaning","urgency":"now|soon|someday","dueDate":"YYYY-MM-DD or null","desc":"...","done":false,"subtasks":[],"notes":"","hours":"0h","mins":"30m"}]</tasks>
 — For brand new tasks the user mentions, omit the id field entirely.
 — If the user asks to open/show their plan, journal, or life map — confirm you're opening it for them.
 — If the user is just chatting with NO task changes needed, do NOT include the <tasks> block.
@@ -319,7 +319,7 @@ app.post("/api/top3", async (req, res) => {
   });
 
   // Life area task coverage — which areas have tasks, which are empty
-  const AREAS = ["work","health","close","contribution","money","home","meaning"];
+  const AREAS = ["work","health","relationships","contribution","money","home","meaning"];
   const areaCounts = Object.fromEntries(AREAS.map(a => [a, 0]));
   available.forEach(t => { if (areaCounts[t.area] !== undefined) areaCounts[t.area]++; });
   const neglectedAreas = AREAS.filter(a => areaCounts[a] === 0);

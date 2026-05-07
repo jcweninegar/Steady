@@ -27,7 +27,7 @@ const DARK = {
 const AREAS = [
   {id:"work",         label:"Work",                  research:"Adults who report meaningful work are 2x as likely to thrive overall.",          example:"I do focused work 3x per week and leave feeling capable.",        checkin:"Are you getting into flow at least once a week?"},
   {id:"health",       label:"Health",                research:"Regular movement is the single strongest predictor of long-term wellbeing.",     example:"I move my body daily and sleep 7+ hours most nights.",            checkin:"Is your body getting what it needs to keep up with your mind?"},
-  {id:"close",        label:"Close relationships",   research:"People with 1-2 deep relationships are as happy as those with many.",           example:"I feel genuinely known by at least one person in my life.",      checkin:"Do the people closest to you actually know what's going on for you?"},
+  {id:"relationships", label:"Relationships",          research:"People with 1-2 deep relationships are as happy as those with many.",           example:"I feel genuinely known by at least one person in my life.",      checkin:"Do the people closest to you actually know what's going on for you?"},
   {id:"contribution", label:"Contribution",          research:"Giving time or skill to others predicts life satisfaction independent of income.",example:"I contribute something weekly — even small acts count.",          checkin:"Are you giving something back, even occasionally?"},
   {id:"money",        label:"Money",                 research:"Financial stress is the top stressor for adults with ADHD. Stability matters more than amount.",example:"I have a system — even a rough one — for tracking what comes in and out.",checkin:"Is money stress background noise or front-of-mind?"},
   {id:"home",         label:"Home",                  research:"Environmental order reduces cognitive load, which matters especially for ADHD brains.",example:"My home is calm enough that I can find things and think clearly.",  checkin:"Does your space support you or fight you?"},
@@ -645,9 +645,9 @@ const STATUS_OPTS = ["Yes","Getting there","Not yet","Had it, lost it"];
 
 const MOCK_CAPTURES = [
   {id:1,text:"Follow up with client on proposal",area:"work",type:"todo",estimate:"30 min",hard:false,subtasks:[]},
-  {id:2,text:"Soccer practice Wednesday 5pm",area:"close",type:"calendar",estimate:"90 min",hard:false,subtasks:[]},
+  {id:2,text:"Soccer practice Wednesday 5pm",area:"relationships",type:"calendar",estimate:"90 min",hard:false,subtasks:[]},
   {id:3,text:"Pay lease renewal",area:"money",type:"todo",estimate:"20 min",hard:true,subtasks:[]},
-  {id:4,text:"Call mom back",area:"close",type:"todo",estimate:"10 min",hard:false,subtasks:[]},
+  {id:4,text:"Call mom back",area:"relationships",type:"todo",estimate:"10 min",hard:false,subtasks:[]},
   {id:5,text:"I want to read more this year",area:"fun",type:"parking",estimate:"30 min",hard:false,subtasks:[]},
   {id:6,text:"Feeling anxious about the budget this month",area:"money",type:"parking",estimate:"15 min",hard:true,subtasks:[]},
 ];
@@ -870,7 +870,7 @@ const AreaIconSVG = ({id, size=16, color="currentColor"}) => {
 
 const AreaIcon = AreaIconSVG;
 
-const AREA_LABELS = {work:"Work",home:"Home",health:"Health",money:"Money",close:"Close relationships",contribution:"Contribution",meaning:"Meaning"};
+const AREA_LABELS = {work:"Work",home:"Home",health:"Health",money:"Money",relationships:"Relationships",contribution:"Contribution",meaning:"Meaning"};
 
 function ExtractedTasksFlow({T, message, onTaskConfirmed}) {
   const [idx, setIdx] = useState(0);
@@ -1748,23 +1748,11 @@ function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
             </button>
           ))}
         </div>
-        {/* History section */}
-        {chatDates.length>0&&(
-          <div style={{marginTop:18,flex:1}}>
-            <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.4px",textTransform:"uppercase",padding:"0 22px 8px"}}>History</div>
-            {chatDates.map(date=>(
-              <button key={date} onClick={()=>onViewDate(date)}
-                style={{display:"block",width:"100%",textAlign:"left",padding:"10px 22px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:T.text,fontWeight:date===todayStr?500:400,WebkitTapHighlightColor:"transparent"}}>
-                {dateLabel(date)}
-                {date===todayStr&&<span style={{fontSize:10,color:T.accent,marginLeft:7,fontWeight:600}}>live</span>}
-              </button>
-            ))}
-          </div>
-        )}
-        {chatDates.length===0&&(
-          <div style={{padding:"20px 22px",color:T.muted,fontSize:13,fontStyle:"italic"}}>No history yet — start chatting!</div>
-        )}
-        <div style={{height:40}}/>
+        <div style={{flex:1}}/>
+        <div style={{padding:"18px 22px",borderTop:"1px solid "+T.divider}}>
+          <div style={{fontSize:12,color:T.muted,fontStyle:"italic",lineHeight:1.6}}>All your history lives in Journal.</div>
+        </div>
+        <div style={{height:20}}/>
       </div>
     </>
   );
@@ -1797,6 +1785,7 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
   });
   const [generating,setGenerating]=useState(null);
   const [ratings,setRatings]=useState({});
+  const [detailTab,setDetailTab]=useState("chat");
   const ratingColor=r=>r==="Good"?T.green:r==="Hard"?T.red:T.accent;
 
   const getChatMsgs=(date)=>{
@@ -1886,61 +1875,129 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
   const msgs=getChatMsgs(selectedDate);
   const entry=narratives[selectedDate];
   const currentRating=ratings[selectedDate]||entry?.rating;
+  const isToday=selectedDate===todayStr;
+  const completedForDay=isToday?(tasks||[]).filter(t=>t.done):[];
+  const AREA_IDS=["work","health","relationships","contribution","money","home","meaning"];
+  const areaPct=id=>Math.min(100,completedForDay.filter(t=>t.area===id).length*33);
 
   return (
-    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 20px 12px",borderBottom:"1px solid "+T.divider}}>
-        <button onClick={()=>setSelectedDate(null)} style={{background:"none",border:"none",cursor:"pointer",padding:4,display:"flex",alignItems:"center"}}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </button>
-        <div style={{flex:1,fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</div>
-        {currentRating&&<span style={{fontSize:11,fontWeight:700,color:ratingColor(currentRating)}}>{currentRating}</span>}
-      </div>
-      <div style={{padding:"16px 20px 40px"}}>
-        {/* Rating */}
-        <div style={{marginBottom:12}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:T.muted,marginBottom:8}}>How was this day?</div>
-          <div style={{display:"flex",gap:6}}>
-            {["Good","Okay","Hard"].map(opt=>(
-              <button key={opt} onClick={()=>setRatings(p=>({...p,[selectedDate]:opt}))}
-                style={{flex:1,padding:"9px 4px",borderRadius:10,border:"1px solid "+(currentRating===opt?ratingColor(opt):T.border),background:currentRating===opt?ratingColor(opt)+"18":"transparent",color:currentRating===opt?ratingColor(opt):T.sub,fontSize:13,fontWeight:currentRating===opt?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{opt}</button>
-            ))}
-          </div>
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      {/* Header with back + date + tabs */}
+      <div style={{flexShrink:0,borderBottom:"1px solid "+T.divider}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 20px 10px"}}>
+          <button onClick={()=>{ setSelectedDate(null); setDetailTab("chat"); }} style={{background:"none",border:"none",cursor:"pointer",padding:4,display:"flex",alignItems:"center"}}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <div style={{flex:1,fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</div>
+          {currentRating&&<span style={{fontSize:11,fontWeight:700,color:ratingColor(currentRating)}}>{currentRating}</span>}
         </div>
-        {/* Entry narrative */}
-        <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
-          <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>Entry</div>
-          {entry?.narrative ? (
-            <>
-              <div style={{fontSize:15,color:T.text,lineHeight:1.8,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative}</div>
-              <button onClick={()=>generateEntry(selectedDate)} style={{marginTop:12,width:"100%",padding:"9px",borderRadius:10,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Regenerate</button>
-            </>
-          ) : generating===selectedDate ? (
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0"}}>
-              <div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}</div>
-              <div style={{fontSize:13,color:T.sub,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Writing your entry…</div>
-            </div>
-          ) : (
-            <div>
-              <div style={{fontSize:13,color:T.muted,lineHeight:1.65,marginBottom:12,fontStyle:"italic",fontFamily:"'Lora',serif"}}>
-                {msgs.length===0?"No conversation for this day yet.":`${msgs.filter(m=>m.role==="user").length} messages to draw from.`}
-              </div>
-              {msgs.length>0&&<button onClick={()=>generateEntry(selectedDate)} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate entry</button>}
-            </div>
+        <div style={{display:"flex",padding:"0 20px 12px",gap:4}}>
+          {[{id:"chat",label:"Chat"},{id:"journal",label:"Journal"}].map(tab=>(
+            <button key={tab.id} onClick={()=>setDetailTab(tab.id)}
+              style={{padding:"7px 18px",borderRadius:20,border:"1px solid "+(detailTab===tab.id?T.text:T.border),background:detailTab===tab.id?T.text:"transparent",color:detailTab===tab.id?T.bg:T.sub,fontSize:13,fontWeight:detailTab===tab.id?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── CHAT TAB ── */}
+      {detailTab==="chat"&&(
+        <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"16px 20px 40px"}}>
+          {msgs.length===0?(
+            <div style={{textAlign:"center",padding:"48px 0",color:T.muted,fontSize:14,fontStyle:"italic"}}>No conversation for this day yet.</div>
+          ):(
+            msgs.map((msg,i)=>{
+              const isUser=msg.role==="user";
+              if(msg.isDump){return(<div key={i} style={{marginBottom:14}}>
+                {msg.acknowledgment&&<div style={{background:T.card,borderRadius:"14px 14px 14px 4px",padding:"12px 14px",marginBottom:8,fontSize:14,color:T.text,lineHeight:1.6,maxWidth:"88%",border:"1px solid "+T.border}}>{msg.acknowledgment}</div>}
+                {(msg.formattedTasks||[]).map((t,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:T.surface,borderRadius:10,marginBottom:5,border:"1px solid "+T.border}}><div style={{width:14,height:14,borderRadius:"50%",border:"1.5px solid "+T.muted,flexShrink:0}}/><span style={{fontSize:13,color:T.text}}>{t.label}</span></div>)}
+              </div>);}
+              return(<div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:8}}>
+                <div style={{background:isUser?T.text:T.card,color:isUser?T.bg:T.text,borderRadius:isUser?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",maxWidth:"84%",fontSize:14,lineHeight:1.6,border:isUser?"none":"1px solid "+T.border}}>{msg.text}</div>
+              </div>);
+            })
           )}
         </div>
-        {/* Conversation log */}
-        {msgs.length>0&&(
-          <div style={{background:T.card,borderRadius:16,padding:"16px",border:"1px solid "+T.border}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:12}}>Conversation</div>
-            {msgs.map((msg,i)=>{
-              const isUser=msg.role==="user";
-              if(msg.isDump){return(<div key={i} style={{marginBottom:10}}>{msg.acknowledgment&&<div style={{fontSize:13,color:T.sub,lineHeight:1.6,marginBottom:6,fontStyle:"italic",fontFamily:"'Lora',serif"}}>{msg.acknowledgment}</div>}{(msg.formattedTasks||[]).map((t,j)=><div key={j} style={{fontSize:12,color:T.muted,padding:"2px 0",paddingLeft:8}}>→ {t.label}</div>)}</div>);}
-              return(<div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start",marginBottom:6}}><div style={{background:isUser?T.text+"1A":T.surface,color:isUser?T.text:T.sub,borderRadius:10,padding:"8px 12px",maxWidth:"88%",fontSize:13,lineHeight:1.6}}>{msg.text}</div></div>);
-            })}
+      )}
+
+      {/* ── JOURNAL TAB ── */}
+      {detailTab==="journal"&&(
+        <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"16px 20px 40px"}}>
+          {/* Today at a glance */}
+          <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:12}}>Today at a glance</div>
+            <div style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <div style={{fontSize:12,color:T.sub}}>Tasks completed</div>
+                <div style={{fontSize:12,fontWeight:700,color:T.text}}>{completedForDay.length} done</div>
+              </div>
+              <div style={{background:T.surface,borderRadius:3,height:5,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,(completedForDay.length/Math.max(1,(tasks||[]).length))*100)+"%",background:T.accent,borderRadius:3}}/></div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:10,color:T.muted,marginBottom:8,fontWeight:500}}>Life areas</div>
+              {AREA_IDS.map(id=>{
+                const label=AREAS.find(a=>a.id===id)?.label||id;
+                return(<div key={id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:5}}>
+                  <div style={{fontSize:11,color:T.sub,width:88,flexShrink:0}}>{label}</div>
+                  <div style={{flex:1,background:T.surface,borderRadius:2,height:4,overflow:"hidden"}}><div style={{height:"100%",width:areaPct(id)+"%",background:areaPct(id)>0?T.accent:T.divider,borderRadius:2}}/></div>
+                </div>);
+              })}
+            </div>
+            <div style={{background:T.surface,borderRadius:10,padding:"10px 12px",borderLeft:"2px solid "+T.accent}}>
+              <Observation T={T} completedTasks={completedForDay}/>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* What got done */}
+          {completedForDay.length>0&&(
+            <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
+              <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>What got done</div>
+              {completedForDay.map((task,i)=>(
+                <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderTop:i>0?"1px solid "+T.divider:"none"}}>
+                  <div style={{width:18,height:18,borderRadius:"50%",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><svg width="8" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                  <div style={{flex:1}}><div style={{fontSize:13,color:T.text,fontWeight:500}}>{task.label}</div><div style={{fontSize:10,color:T.muted,textTransform:"capitalize"}}>{task.area}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Rating */}
+          <div style={{background:T.card,borderRadius:16,padding:"16px",marginBottom:12,border:"1px solid "+T.border}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>How was today?</div>
+            <div style={{display:"flex",gap:6,marginBottom:currentRating?10:0}}>
+              {["Good","Okay","Hard"].map(opt=>(
+                <button key={opt} onClick={()=>setRatings(p=>({...p,[selectedDate]:opt}))}
+                  style={{flex:1,padding:"10px 4px",borderRadius:12,border:"1px solid "+(currentRating===opt?ratingColor(opt):T.border),background:currentRating===opt?ratingColor(opt)+"18":"transparent",color:currentRating===opt?ratingColor(opt):T.sub,fontSize:13,fontWeight:currentRating===opt?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{opt}</button>
+              ))}
+            </div>
+            {currentRating&&<div style={{fontSize:12,color:T.muted,textAlign:"center",fontStyle:"italic",fontFamily:"'Lora',serif"}}>{currentRating==="Good"?"Good days are worth noting.":currentRating==="Hard"?"Hard days pass. You showed up.":"Most days are okay. That is okay."}</div>}
+          </div>
+
+          {/* Entry narrative */}
+          <div style={{background:T.card,borderRadius:16,padding:"16px",border:"1px solid "+T.border}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>Entry</div>
+            {entry?.narrative ? (
+              <>
+                <div style={{fontSize:15,color:T.text,lineHeight:1.8,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative}</div>
+                <button onClick={()=>generateEntry(selectedDate)} style={{marginTop:12,width:"100%",padding:"9px",borderRadius:10,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Regenerate</button>
+              </>
+            ) : generating===selectedDate ? (
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0"}}>
+                <div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}</div>
+                <div style={{fontSize:13,color:T.sub,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Writing your entry…</div>
+              </div>
+            ) : (
+              <>
+                <div style={{fontSize:13,color:T.muted,lineHeight:1.65,marginBottom:12,fontStyle:"italic",fontFamily:"'Lora',serif"}}>
+                  {msgs.length===0?"No conversation yet today.":`${msgs.filter(m=>m.role==="user").length} messages to draw from.`}
+                </div>
+                {msgs.length>0&&<button onClick={()=>generateEntry(selectedDate)} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate entry</button>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
