@@ -1776,7 +1776,7 @@ function Observation({T, completedTasks}) {
 
 function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate}) {
   const todayStr=new Date().toISOString().split("T")[0];
-  const [selectedDate,setSelectedDate]=useState(initialDate||null);
+  const [selectedDate,setSelectedDate]=useState(initialDate||new Date().toISOString().split("T")[0]);
   const [expandedMonths,setExpandedMonths]=useState({[todayStr.slice(0,7)]:true});
   const [narratives,setNarratives]=useState(()=>{
     const s={};
