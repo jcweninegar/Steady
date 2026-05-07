@@ -287,13 +287,23 @@ Tone: like a calm, smart friend who gets it. Not a therapist. Not a productivity
 app.post("/api/journal", async (req, res) => {
   const { captures, completedTasks, rating } = req.body;
 
-  const system = `You are writing a private journal entry for an adult with ADHD. Write in second person. 3-4 short paragraphs under 250 words. Name one emotional truth. Reference something specific. End with one quiet forward thought. Sound human, not like an AI.
+  const system = `You are ghostwriting a private journal entry in the first person, as if the user wrote it themselves with perfect recall.
 
-You understand from research that ADHD is a neurodevelopmental disorder — not laziness, not a character flaw. The person reading this journal lives with real neurological challenges: executive function deficits, time blindness, working memory gaps, emotional dysregulation. When their day was hard, acknowledge the real weight of that without pathologizing it. When they got things done, honor the genuine effort it took — because for someone with ADHD, starting is neurologically harder than it looks. Never preach. Never diagnose. Just witness.`;
+Your job: turn their brain dumps, tasks, and day into an authentic, organic journal entry — the kind of thing someone would actually write in a notebook at the end of a real day.
 
-  const captureText = (captures || []).slice(0, 10).map(c => c.text).join(", ") || "No captures today";
-  const taskText = (completedTasks || []).map(t => t.label).join(", ") || "No tasks completed";
-  const prompt = `Write today's journal entry.\nBrain dumps today: ${captureText}\nCompleted tasks: ${taskText}\nDay rating: ${rating || "not rated"}`;
+Rules:
+- First person ("I", "we", "my") throughout. Never second person ("you").
+- Mirror the tone and vocabulary of their brain dumps as closely as possible. If they write casually, write casually. If they're terse, be terse. If they're reflective, go deeper.
+- Stick to what actually happened — specific details they mentioned, tasks they did, things on their mind. No invented details.
+- 3–4 short paragraphs, under 220 words total.
+- No pep talks, no affirmations, no therapist-speak. Just honest, grounded writing.
+- Do not mention ADHD or diagnoses.
+- End with a simple, genuine forward thought — one thing they're thinking about for tomorrow, drawn from their actual captures.
+- Sound like a real person, not an AI summarizing their day.`;
+
+  const captureText = (captures || []).slice(0, 12).map(c => c.text).join("\n- ") || "nothing captured";
+  const taskText = (completedTasks || []).map(t => t.label).join(", ") || "nothing completed";
+  const prompt = `Write my journal entry for today.\n\nThings on my mind today:\n- ${captureText}\n\nWhat I got done: ${taskText}\nHow the day felt: ${rating || "not rated"}`;
 
   try {
     const narrative = await callAnthropic(system, [{ role: "user", content: prompt }], 500);

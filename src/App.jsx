@@ -1800,6 +1800,17 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
   };
   const ratingColor=r=>r==="Good"?T.green:r==="Hard"?T.red:T.accent;
 
+  // Auto-generate narrative when Journal tab opens and entry doesn't exist yet
+  useEffect(()=>{
+    if(detailTab!=="journal"||!selectedDate) return;
+    const msgs=getChatMsgs(selectedDate);
+    if(msgs.length===0) return;
+    if(narratives[selectedDate]?.narrative) return;
+    if(generating===selectedDate) return;
+    generateEntry(selectedDate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[detailTab,selectedDate]);
+
   const getChatMsgs=(date)=>{
     if(date===todayStr) return chatMessages||[];
     try{ const s=localStorage.getItem("steady_chat_"+date); return s?JSON.parse(s):[]; }catch{ return []; }
@@ -1896,11 +1907,12 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {/* Header with back + date + tabs */}
       <div style={{flexShrink:0,borderBottom:"1px solid "+T.divider}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 20px 10px"}}>
-          <button onClick={()=>{ setSelectedDate(null); setDetailTab("chat"); }} style={{background:"none",border:"none",cursor:"pointer",padding:4,display:"flex",alignItems:"center"}}>
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        <div style={{display:"flex",alignItems:"center",gap:2,padding:"12px 20px 10px"}}>
+          <button onClick={()=>{ setSelectedDate(null); setDetailTab("chat"); }} style={{background:"none",border:"none",cursor:"pointer",padding:"4px 8px 4px 4px",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <span style={{fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</span>
           </button>
-          <div style={{flex:1,fontSize:16,fontWeight:500,color:T.text,fontFamily:"'Lora',serif"}}>{entryDateLabel(selectedDate)}</div>
+          <div style={{flex:1}}/>
           {currentRating&&<span style={{fontSize:11,fontWeight:700,color:ratingColor(currentRating)}}>{currentRating}</span>}
         </div>
         <div style={{margin:"0 20px 12px",display:"flex",background:T.surface,borderRadius:12,padding:3,gap:2}}>
@@ -1988,24 +2000,21 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
 
           {/* Entry narrative */}
           <div style={{background:T.card,borderRadius:16,padding:"16px",border:"1px solid "+T.border}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:10}}>Entry</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent}}>Entry</div>
+              {entry?.narrative&&<button onClick={()=>generateEntry(selectedDate)} style={{fontSize:11,color:T.muted,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Refresh</button>}
+            </div>
             {entry?.narrative ? (
-              <>
-                <div style={{fontSize:15,color:T.text,lineHeight:1.8,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative}</div>
-                <button onClick={()=>generateEntry(selectedDate)} style={{marginTop:12,width:"100%",padding:"9px",borderRadius:10,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Regenerate</button>
-              </>
+              <div style={{fontSize:15,color:T.text,lineHeight:1.85,fontFamily:"'Lora',serif",fontStyle:"italic"}}>{entry.narrative}</div>
             ) : generating===selectedDate ? (
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0"}}>
                 <div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}</div>
                 <div style={{fontSize:13,color:T.sub,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Writing your entry…</div>
               </div>
             ) : (
-              <>
-                <div style={{fontSize:13,color:T.muted,lineHeight:1.65,marginBottom:12,fontStyle:"italic",fontFamily:"'Lora',serif"}}>
-                  {msgs.length===0?"No conversation yet today.":`${msgs.filter(m=>m.role==="user").length} messages to draw from.`}
-                </div>
-                {msgs.length>0&&<button onClick={()=>generateEntry(selectedDate)} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:T.text,color:T.bg,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Generate entry</button>}
-              </>
+              <div style={{fontSize:13,color:T.muted,fontStyle:"italic",fontFamily:"'Lora',serif"}}>
+                {msgs.length===0?"No conversation yet today.":"Getting your entry ready…"}
+              </div>
             )}
           </div>
           {/* In your own words */}
