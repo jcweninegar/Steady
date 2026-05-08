@@ -1525,13 +1525,13 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                     onTouchEnd={()=>onBlockTouchEnd()}
                     data-drag-zone={String(block.id)}
                     style={{flex:1,padding:"0 6px 0 12px",cursor:isDragging?"grabbing":isEditing?"grab":"default",touchAction:isEditing?"none":"pan-y",minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      {isEditing&&<span style={{fontSize:13,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
-                      <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                      {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
+                      <span style={{fontSize:11,color:T.sub,flexShrink:0,fontVariantNumeric:"tabular-nums",lineHeight:1}}>
+                        {block.isWorkBlock?`${workTasks.length}t · ${durStr(workBlockMins)}`:durStr(block.dur)}
+                      </span>
+                      <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
                       {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
-                    </div>
-                    <div style={{fontSize:10,color:T.muted,marginTop:2}}>
-                      {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
                     </div>
                   </div>
                   <div onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
