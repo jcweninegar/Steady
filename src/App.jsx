@@ -1518,21 +1518,34 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",
               }}>
                 {/* Header — long-press body to drag, tap chevron to expand */}
-                <div style={{display:"flex",alignItems:"center",height:blockH-28}}>
+                <div style={{display:"flex",alignItems:"flex-start",height:blockH-28}}>
                   <div
                     onPointerDown={e=>{ if(e.pointerType==="mouse") startDrag(e,block); }}
                     onTouchMove={e=>onBlockTouchMove(e)}
                     onTouchEnd={()=>onBlockTouchEnd()}
                     data-drag-zone={String(block.id)}
-                    style={{flex:1,padding:"0 6px 0 12px",cursor:isDragging?"grabbing":isEditing?"grab":"default",touchAction:isEditing?"none":"pan-y",minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
-                      {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
-                      <span style={{fontSize:11,color:T.sub,flexShrink:0,fontVariantNumeric:"tabular-nums",lineHeight:1}}>
-                        {block.isWorkBlock?`${workTasks.length}t · ${durStr(workBlockMins)}`:durStr(block.dur)}
-                      </span>
-                      <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
-                      {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
-                    </div>
+                    style={{flex:1,padding:"9px 4px 4px 12px",cursor:isDragging?"grabbing":isEditing?"grab":"default",touchAction:isEditing?"none":"pan-y",minWidth:0}}>
+                    {blockH>=64?(
+                      <>
+                        <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                          {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
+                          <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
+                          {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
+                        </div>
+                        <div style={{fontSize:10,color:T.sub,marginTop:3,fontVariantNumeric:"tabular-nums"}}>
+                          {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
+                        </div>
+                      </>
+                    ):(
+                      <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                        {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
+                        <span style={{fontSize:10,color:T.sub,flexShrink:0,fontVariantNumeric:"tabular-nums",lineHeight:1}}>
+                          {block.isWorkBlock?`${workTasks.length}t · ${durStr(workBlockMins)}`:durStr(block.dur)}
+                        </span>
+                        <span style={{fontSize:12,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
+                        {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
+                      </div>
+                    )}
                   </div>
                   <div onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
                     {isEditing
