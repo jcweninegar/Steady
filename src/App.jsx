@@ -1267,8 +1267,38 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
   const [blockOffsets,setBlockOffsets]=useState(()=>{try{const s=localStorage.getItem("steady_cal_offsets");return s?JSON.parse(s):{morning:0,startup:0,workblock:0,shutdown:0,evening:0};}catch{return {morning:0,startup:0,workblock:0,shutdown:0,evening:0};}});
   const [blockDurs,setBlockDurs]=useState(()=>{try{const s=localStorage.getItem("steady_cal_durs");return s?JSON.parse(s):{};}catch{return {};}});
-  const [stepOrders,setStepOrders]=useState(()=>Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,rb.steps.map(s=>s.id)])));
+  const [stepOrders,setStepOrders]=useState(()=>{try{const s=localStorage.getItem("steady_cal_steporders");if(s){const p=JSON.parse(s);return Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,p[rb.id]||rb.steps.map(s=>s.id)]));}  }catch{}return Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,rb.steps.map(s=>s.id)]));});
   const [cardDrag,setCardDrag]=useState(null);
+  const [expandedStepId,setExpandedStepId]=useState(null);
+  const [stepNotes,setStepNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("steady_step_notes")||"{}");}catch{return {};}});
+  const touchCardDragRef=useRef(null);
+  const reorderCardsRef=useRef(null);
+
+  useEffect(()=>{try{localStorage.setItem("steady_cal_steporders",JSON.stringify(stepOrders));}catch{}},[stepOrders]);
+  useEffect(()=>{try{localStorage.setItem("steady_step_notes",JSON.stringify(stepNotes));}catch{}},[stepNotes]);
+  useEffect(()=>{
+    if(!sheetVisible)return;
+    const onMove=(e)=>{
+      if(!touchCardDragRef.current)return;
+      e.preventDefault();
+      const touch=e.touches[0];
+      const{startY,cardH,blockId,fromIdx}=touchCardDragRef.current;
+      const dy=touch.clientY-startY;
+      const newIdx=Math.max(0,Math.round(fromIdx+dy/cardH));
+      touchCardDragRef.current.currentIdx=newIdx;
+      setCardDrag({blockId,fromIdx,toIdx:newIdx});
+    };
+    const onEnd=()=>{
+      if(!touchCardDragRef.current)return;
+      const{blockId,fromIdx,currentIdx}=touchCardDragRef.current;
+      reorderCardsRef.current&&reorderCardsRef.current(blockId,fromIdx,currentIdx??fromIdx);
+      touchCardDragRef.current=null;
+      setCardDrag(null);
+    };
+    window.addEventListener("touchmove",onMove,{passive:false});
+    window.addEventListener("touchend",onEnd);
+    return()=>{window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onEnd);};
+  },[sheetVisible]);
 
   const now=new Date();
   const nowPx=(now.getHours()-START_H)*PX_HR+now.getMinutes()*PX_MIN;
@@ -1462,36 +1492,53 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     if(blockId==="workblock") setWorkTasks(p=>{const a=[...p];const[i]=a.splice(from,1);a.splice(to,0,i);return a;});
     else setStepOrders(p=>{const a=[...p[blockId]];const[i]=a.splice(from,1);a.splice(to,0,i);return{...p,[blockId]:a};});
   };
+  reorderCardsRef.current=reorderCards;
 
   // Shared card row renderer for the sheet
   const renderCard=(blockId,item,i,isTask)=>{
     const isDragOver=cardDrag?.blockId===blockId&&cardDrag?.toIdx===i;
     const done=isTask?item.done:routineDone[item.id];
+    const stepExpanded=!isTask&&expandedStepId===item.id;
     return (
       <div key={item.id}
-        draggable
-        onDragStart={e=>{
-          e.stopPropagation();
-          e.dataTransfer.setDragImage(e.currentTarget,e.nativeEvent.offsetX,e.nativeEvent.offsetY);
-          setCardDrag({blockId,fromIdx:i,toIdx:i});
-        }}
+        draggable={isTask}
+        onDragStart={isTask?e=>{e.stopPropagation();e.dataTransfer.setDragImage(e.currentTarget,e.nativeEvent.offsetX,e.nativeEvent.offsetY);setCardDrag({blockId,fromIdx:i,toIdx:i});}:undefined}
         onDragOver={e=>{e.preventDefault();e.stopPropagation();setCardDrag(p=>p?{...p,toIdx:i}:null);}}
         onDrop={e=>{e.preventDefault();e.stopPropagation();cardDrag&&reorderCards(blockId,cardDrag.fromIdx,i);setCardDrag(null);}}
         onDragEnd={()=>setCardDrag(null)}
-        style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:isDragOver?T.accentSoft:T.surface,borderRadius:12,border:"1.5px solid "+(isDragOver?T.accent:T.border),transition:"background 0.1s,border-color 0.1s",userSelect:"none",WebkitUserSelect:"none",cursor:"grab",boxSizing:"border-box"}}>
-        {/* Checkbox */}
-        <div
-          onClick={e=>{e.stopPropagation();isTask?markDone&&markDone(item.id):setRoutineDone(p=>({...p,[item.id]:!p[item.id]}));}}
-          style={{width:22,height:22,borderRadius:"50%",border:done?"none":"1.5px solid "+T.sub,background:done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",cursor:"pointer"}}>
-          {done&&CHECK_SVG(T.accentText)}
+        style={{display:"flex",flexDirection:"column",background:isDragOver?T.accentSoft:T.surface,borderRadius:12,border:"1.5px solid "+(isDragOver?T.accent:stepExpanded?T.accent+"60":T.border),transition:"background 0.1s,border-color 0.15s",userSelect:"none",WebkitUserSelect:"none",boxSizing:"border-box"}}>
+        {/* Main row */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
+          {/* Checkbox */}
+          <div
+            onClick={e=>{e.stopPropagation();isTask?markDone&&markDone(item.id):setRoutineDone(p=>({...p,[item.id]:!p[item.id]}));}}
+            style={{width:22,height:22,borderRadius:"50%",border:done?"none":"1.5px solid "+T.sub,background:done?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",cursor:"pointer"}}>
+            {done&&CHECK_SVG(T.accentText)}
+          </div>
+          {isTask&&i<3&&<div style={{width:18,height:18,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:700,color:T.accent}}>{i+1}</span></div>}
+          {/* Label — tap opens detail */}
+          <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={isTask?()=>onTaskClick&&onTaskClick(item):()=>setExpandedStepId(p=>p===item.id?null:item.id)}>
+            <div style={{fontSize:14,color:done?T.sub:T.text,textDecoration:done?"line-through":"none",lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isTask?item.label:item.text}</div>
+            {!isTask&&<div style={{fontSize:11,color:T.muted,marginTop:1}}>{item.dur}m{stepNotes[item.id]?" · has notes":""}</div>}
+          </div>
+          {/* Drag handle — touch to reorder */}
+          <span
+            onTouchStart={e=>{e.stopPropagation();touchCardDragRef.current={blockId,fromIdx:i,currentIdx:i,startY:e.touches[0].clientY,cardH:62};setCardDrag({blockId,fromIdx:i,toIdx:i});}}
+            style={{fontSize:16,color:T.muted,cursor:"grab",flexShrink:0,paddingLeft:6,paddingRight:2,touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}>⠿</span>
         </div>
-        {isTask&&i<3&&<div style={{width:18,height:18,borderRadius:"50%",background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:700,color:T.accent}}>{i+1}</span></div>}
-        {/* Label — click opens detail for tasks */}
-        <div style={{flex:1,minWidth:0}} onClick={isTask?()=>onTaskClick&&onTaskClick(item):undefined}>
-          <div style={{fontSize:14,color:done?T.sub:T.text,textDecoration:done?"line-through":"none",lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isTask?item.label:item.text}</div>
-          {!isTask&&<div style={{fontSize:11,color:T.muted,marginTop:1}}>{item.dur}m</div>}
-        </div>
-        <span style={{fontSize:16,color:T.muted,cursor:"grab",flexShrink:0,paddingLeft:4}}>⠿</span>
+        {/* Inline detail for routine steps */}
+        {stepExpanded&&(
+          <div style={{padding:"0 14px 14px",borderTop:"1px solid "+T.divider}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.sub,marginTop:10,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.4px"}}>Notes</div>
+            <textarea
+              placeholder={`Notes for "${item.text}"…`}
+              value={stepNotes[item.id]||""}
+              onChange={e=>setStepNotes(p=>({...p,[item.id]:e.target.value}))}
+              onTouchStart={e=>e.stopPropagation()}
+              style={{width:"100%",background:T.bg,border:"1px solid "+T.border,borderRadius:8,padding:"9px 11px",fontSize:13,color:T.text,resize:"none",fontFamily:"inherit",lineHeight:1.5,boxSizing:"border-box",minHeight:76,outline:"none"}}
+            />
+          </div>
+        )}
       </div>
     );
   };
