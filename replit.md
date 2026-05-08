@@ -41,12 +41,25 @@ Auto-creates a profile row on new user signup via trigger.
 - Migrations run via Supabase Management API using PAT (not hardcoded SQL in app)
 
 ## Plan view
-- **Agenda tab**: routine blocks (collapsible, cards inside), Work Block (ordered task list, drag-to-reorder, add from All Tasks)
+- **Today tab**: observation → reflective question → 3 confirmation slots → Top 10 candidates (confirm/unconfirm, AI suggests) → See All (collapsible, filter chips: All/Urgent/area/Parked)
 - **Calendar tab**: real time grid 6am–10pm, 80px/hr. All blocks absolute-positioned. Blocks are:
   - Draggable (grab body to move up/down the grid, snaps 15-min)
   - Expandable (tap chevron to see cards inside with checkboxes)
   - Resizable (Work Block only — bottom handle)
   - Block positions stored in `blockOffsets` state (minutes delta from default)
+
+## Onboarding
+- Detected via `steady_onboarded` localStorage flag
+- New users see `OnboardingScreen` (2 screens: name → 3 pillars)
+- On complete: sets flag, clears tasks/captures, lands on home
+
+## Reset routine (Stuck?)
+- Home screen chip: "Stuck?" → opens chat with "I'm feeling stuck…" context
+- TaskSheet: "Feeling stuck? Get unstuck →" button → closes task, opens chat with task label as context
+
+## Voice visual
+- When `isListening=true`, home content replaces heading with `VoiceVisual` component
+- Shows last 10 words fading to opacity=0.12, animated dots below
 
 ## Environment Variables
 - `VITE_SUPABASE_URL` — Supabase project URL (shared)

@@ -93,6 +93,7 @@ INPUT: "${text}"
 ━━━ CLASSIFICATION ━━━
 - Tasks = things the user needs to DO (call, pay, email, review, buy, schedule, fix, pick up, text, etc.)
 - Captures = events/feelings/ideas/observations NOT requiring action right now (worries, calendar events already set, things they noticed, plans already made)
+- Journal inputs = inner emotional content — personal feelings, mental state, processing thoughts, anxieties, emotional observations. NOT tasks. NOT calendar events. Examples: "I've been feeling off all week", "I'm scared about the business", "I feel proud of how I handled that", "I've been grinding too hard lately"
 - Area options: work | home | health | money | relationships | contribution | meaning
   · relationships = family, kids, close relationships · home = chores, house stuff
 
@@ -161,7 +162,10 @@ Return ONLY this exact JSON:
     "text": "the item",
     "type": "calendar-event|worry|idea|observation"
   }],
-  "acknowledgment": "warm one-sentence acknowledgment of what they shared — natural, human, no lists"
+  "journal_inputs": [{
+    "text": "the emotional/inner content"
+  }],
+  "acknowledgment": "warm one-sentence acknowledgment of what they shared — natural, human, no lists. If journal inputs were present, acknowledge the emotional content first."
 }`;
 
   try {
@@ -357,10 +361,10 @@ Rules:
 
 // ── Top 3 suggestion — the steady algorithm ───────────────────────────────────
 app.post("/api/top3", async (req, res) => {
-  const { tasks, lifeAreas, captures, dayRating, userId } = req.body;
+  const { tasks, lifeAreas, captures, dayRating, userId, emotional_signal, calendar_events } = req.body;
   const nowMs = Date.now();
-  const available = (tasks || []).filter(t => !t.done).slice(0, 20);
-  if (available.length === 0) return res.json({ picks: [], observation: null });
+  const available = (tasks || []).filter(t => !t.done).slice(0, 25);
+  if (available.length === 0) return res.json({ picks: [], observation: null, reflective_question: null });
 
   // Infer task age: task IDs are Date.now() timestamps (13-digit ms)
   const withMeta = available.map((t, i) => {
@@ -369,11 +373,11 @@ app.post("/api/top3", async (req, res) => {
     return { ...t, _idx: i, _ageDays: ageDays };
   });
 
-  // Life area task coverage — which areas have tasks, which are empty
-  const AREAS = ["work","health","relationships","contribution","money","home","meaning"];
-  const areaCounts = Object.fromEntries(AREAS.map(a => [a, 0]));
+  // Life area task coverage
+  const AREA_IDS = ["work","health","relationships","contribution","money","home","meaning"];
+  const areaCounts = Object.fromEntries(AREA_IDS.map(a => [a, 0]));
   available.forEach(t => { if (areaCounts[t.area] !== undefined) areaCounts[t.area]++; });
-  const neglectedAreas = AREAS.filter(a => areaCounts[a] === 0);
+  const neglectedAreas = AREA_IDS.filter(a => areaCounts[a] === 0);
   const areaLine = lifeAreas && lifeAreas.length > 0
     ? lifeAreas.map(la => `${la.id}: ${la.status || "not set"}`).join(", ")
     : `No tasks in: ${neglectedAreas.join(", ") || "none"}`;
@@ -385,11 +389,23 @@ app.post("/api/top3", async (req, res) => {
     .filter(Boolean)
     .join("; ") || "none";
 
+  // Fixed time commitments today
+  const todayEvents = (calendar_events || []).map(e => e.text || e.label || "").filter(Boolean);
+  const calLine = todayEvents.length > 0
+    ? `Fixed commitments today: ${todayEvents.join("; ")}`
+    : "No fixed commitments logged for today";
+
+  // Emotional context
+  const emotionalLine = emotional_signal
+    ? `Wellbeing pattern (last 7 days): ${(emotional_signal.last7Days || []).join(", ")} — overall: ${emotional_signal.hardStreak || "stable"}`
+    : dayRating ? `Yesterday rated: ${dayRating}` : "No rating data available";
+
   // Build task list with staleness signal
   const taskList = withMeta.map(t => {
     const age = t._ageDays !== null ? ` [${t._ageDays}d old]` : "";
     const due = t.dueDate ? ` due:${t.dueDate}` : "";
-    return `${t._idx}: "${t.label}" — area:${t.area} urgency:${t.urgency || "soon"}${due}${age}`;
+    const parked = t._ageDays !== null && t._ageDays > 7 ? " [STALE]" : "";
+    return `${t._idx}: "${t.label}" — area:${t.area} urgency:${t.urgency || "soon"}${due}${age}${parked}`;
   }).join("\n");
 
   const todayStr = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric" });
@@ -400,66 +416,71 @@ app.post("/api/top3", async (req, res) => {
 ${historyBlock}
 
 ━━━ THE STEADY ALGORITHM ━━━
-You are the steady. prioritization engine. Select the 3 best tasks for this user today using the algorithm below.
+You are the steady. prioritization engine. Rank the 10 best tasks for this user today using the algorithm below. Return exactly 10 picks (or all available tasks if fewer than 10).
 
 INPUTS IN PRIORITY ORDER:
-1. Hard deadlines — anything with a due date at or near today comes first.
-2. Task staleness — tasks sitting untouched 7+ days need surfacing. Name this directly in whyToday.
-3. Life area neglect — if an important area (health, relationships, money) has nothing moving, flag it.
-4. Capture frequency — if a topic appears repeatedly in brain dumps, it belongs in the Top 3.
-5. Dodson's four motivators — assign each pick the motivator that best activates the ADHD brain for that task:
+1. Fixed time commitments — if today has hard calendar events, factor in reduced available focus time.
+2. Hard deadlines — anything with a due date at or near today comes first.
+3. Emotional load — if the user has had multiple Hard days recently, prefer shorter/lighter tasks where possible. Don't overload a depleted brain.
+4. Task staleness — tasks marked [STALE] (7+ days untouched) need surfacing. Name this directly in whyToday.
+5. Life area neglect — if an important area (health, relationships, money) has nothing moving, flag it.
+6. Capture frequency — if a topic appears repeatedly in brain dumps, it belongs near the top.
+7. Dodson's motivators — assign each pick the motivator that best activates the ADHD brain:
    - "urgency": deadline is real and near
    - "challenge": requires full focus, good for a dedicated block
    - "interest": connects to something the user genuinely cares about
    - "novelty": fresh action in a long-neglected area
    - "meaning": moves something in a core life area
-6. Cognitive load balance — don't pick 3 heavy tasks. Mix at least one lighter action if possible.
+8. Cognitive load balance — mix heavy and light tasks. Don't stack 10 hard tasks.
 
 whyToday rules:
 - 8–12 words, plain declarative English
 - No praise, no pressure, no exclamation marks
 - Neutral and observational — describe reality, don't evaluate the person
 - Never use: overdue, should, must, failing, behind, late, disappointed
-- Good examples:
-  "Due tomorrow. This is the real window."
-  "Health hasn't had a move in a few days."
-  "Been in three brain dumps. Time to clear it."
-  "Quiet area. One action changes that."
+- Good: "Due tomorrow. This is the real window."
+- Good: "Health hasn't had a move in a few days."
+- Good: "Been in three brain dumps. Time to clear it."
 
 observation rules:
-- 10–15 words, one sentence
-- Warm, factual, forward-looking
+- 10–15 words, one sentence, warm and factual
 - Describes the shape of today's list — not the person's performance
-- Example: "Two areas moving today. Health is the one still waiting."
+
+reflective_question rules:
+- Only include when a clear pattern exists (task stuck 3+ times, specific area neglected 7+ days, hard streak 3+ days, etc.)
+- Max 12 words, warm and curious tone — not confrontational
+- Good: "Health hasn't moved in a week. Is that intentional?"
+- Good: "This task has come up a few times. What's in the way?"
+- null if no clear pattern worth naming
 
 Return ONLY valid JSON — no markdown, no explanation:
 {
   "picks": [
     {"index": 0, "motivator": "urgency", "whyToday": "..."},
-    {"index": 3, "motivator": "meaning", "whyToday": "..."},
-    {"index": 7, "motivator": "challenge", "whyToday": "..."}
+    {"index": 3, "motivator": "meaning", "whyToday": "..."}
   ],
-  "observation": "..."
+  "observation": "...",
+  "reflective_question": "..." or null
 }`;
 
   const prompt = `TODAY: ${todayStr}
-YESTERDAY RATING: ${dayRating || "not recorded"}
+${calLine}
+${emotionalLine}
 
-TASKS:
+TASKS (${available.length} active):
 ${taskList}
 
 LIFE AREAS: ${areaLine}
 RECENT BRAIN DUMP CAPTURES: ${captureText}`;
 
   try {
-    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 500);
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 900);
     const clean = raw.replace(/```json|```/g, "").trim();
     const result = JSON.parse(clean);
     res.json(result);
   } catch (e) {
     console.error("Top3 error:", e.message);
-    // Graceful fallback — return first 3 with no framing
-    res.json({ picks: [{index:0},{index:1},{index:2}], observation: null });
+    res.json({ picks: [{index:0},{index:1},{index:2}], observation: null, reflective_question: null });
   }
 });
 

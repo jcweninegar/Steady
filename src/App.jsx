@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from "react";
 import { useAuth } from "./lib/AuthContext";
 import AuthScreen from "./screens/AuthScreen";
 import { supabase } from "./lib/supabase";
@@ -1040,7 +1040,7 @@ const HOURS=["0h","1h","2h","3h","4h"];
 const MINS=["0m","15m","30m","45m"];
 const SUB_MINS=["5m","10m","15m","20m","30m","45m","60m","90m"];
 
-function TaskSheet({T, task, open, onClose, onSave, onDelete}) {
+function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
   const sheetRef=useRef(null);
   const [visible,setVisible]=useState(false);
   const [name,setName]=useState("");
@@ -1150,6 +1150,11 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete}) {
             <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Notes</div>
             <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add notes, links, or context..." rows={3} style={{width:"100%",border:"none",background:"transparent",color:T.text,fontSize:14,fontFamily:"'DM Sans',sans-serif",lineHeight:1.6,outline:"none",resize:"none"}}/>
           </div>
+          {onGetUnstuck&&task&&(
+            <button onClick={()=>{ handleClose(); setTimeout(()=>onGetUnstuck(task),340); }} style={{width:"100%",padding:"13px",border:"1px solid "+T.accent+"40",borderRadius:14,background:"transparent",color:T.accent,fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",textAlign:"center",marginBottom:8}}>
+              Feeling stuck? Get unstuck →
+            </button>
+          )}
           {onDelete&&task&&(
             <button onClick={()=>onDelete(task.id)} style={{width:"100%",padding:"13px",border:"1px solid "+T.red+"40",borderRadius:14,background:"transparent",color:T.red,fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.red} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -1490,188 +1495,256 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   );
 }
 
-function PlanContent({T, tasks, setTasks, captures, userId}) {
-  const [planView,setPlanView]=useState("agenda");
+function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
+  const [planView,setPlanView]=useState("today");
   const [workTasks,setWorkTasks]=useState([]);
-  const [taskFraming,setTaskFraming]=useState({});
+  const [top10Candidates,setTop10Candidates]=useState([]);
   const [planObservation,setPlanObservation]=useState(null);
-  const [workBlockMins,setWorkBlockMins]=useState(90);
+  const [planQuestion,setPlanQuestion]=useState(null);
+  const [candidatesLoading,setCandidatesLoading]=useState(false);
+  const [showAllTasks,setShowAllTasks]=useState(false);
+  const [allTasksFilter,setAllTasksFilter]=useState("all");
+  const [workBlockMins]=useState(90);
+  const [routineDone,setRoutineDone]=useState({});
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
-  const [dragId,setDragId]=useState(null);
-  const [wDragIdx,setWDragIdx]=useState(null);
-  const [wDragOver,setWDragOver]=useState(null);
-  const [routineDone,setRoutineDone]=useState({});
-  const [routinesExp,setRoutinesExp]=useState({});
-  const workIds=workTasks.map(t=>t.id);
-  const listTasks=tasks.filter(t=>!t.done&&!workIds.includes(t.id)).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
-  const addToWork=(task)=>{ if(workIds.includes(task.id))return;setWorkTasks(p=>[...p,task]); };
-  const removeFromWork=(id)=>setWorkTasks(p=>p.filter(t=>t.id!==id));
-  const markDone=(id)=>{ setTasks(p=>p.map(t=>t.id===id?{...t,done:true}:t));setWorkTasks(p=>p.filter(t=>t.id!==id)); };
-  const deleteTask=(id)=>{ setTasks(p=>p.filter(t=>t.id!==id));setWorkTasks(p=>p.filter(t=>t.id!==id)); };
-  const openTask=(task)=>{ setSelected(task);setSheetOpen(true); };
+
+  // Staleness: task id is a ms timestamp and > 7 days old
+  const isParked=(task)=>{
+    if(task.done) return false;
+    const isTs=typeof task.id==="number"&&task.id>1_000_000_000_000;
+    if(!isTs) return false;
+    return (Date.now()-task.id)>7*86_400_000;
+  };
+
+  // Load ratings from localStorage for emotional signal
+  const localRatings=useMemo(()=>{
+    const r={};
+    try{ Object.keys(localStorage).filter(k=>k.startsWith("steady_entry_")).forEach(k=>{ const d=k.replace("steady_entry_",""); try{ const e=JSON.parse(localStorage.getItem(k)); if(e?.rating) r[d]=e.rating; }catch{} }); }catch{}
+    return r;
+  },[]);
+
   const now=new Date();
   const timeStr=now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   const dateStr=now.toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"});
-  // Work Block drag handlers (reorder within list)
-  const onWDS=(i)=>setWDragIdx(i);
-  const onWDO=(e,i)=>{ e.preventDefault();setWDragOver(i); };
-  const onWDr=(e,i)=>{ e.preventDefault();if(wDragIdx!==null&&wDragIdx!==i){const n=[...workTasks];const [item]=n.splice(wDragIdx,1);n.splice(i,0,item);setWorkTasks(n);}setWDragIdx(null);setWDragOver(null); };
-  // Drop from All Tasks onto Work Block
-  const onWBDrop=(e)=>{ e.preventDefault();if(dragId){const task=listTasks.find(t=>String(t.id)===dragId);if(task)addToWork(task);}setDragId(null); };
-  useEffect(()=>{
-    if(workTasks.length===0&&tasks.filter(t=>!t.done).length>0){
-      suggestTop3(tasks, captures||[], null, userId).then(result=>{
-        if(result.tasks&&result.tasks.length>0) setWorkTasks(result.tasks.slice(0,3).filter(Boolean));
-        if(result.framing) setTaskFraming(result.framing);
-        if(result.observation) setPlanObservation(result.observation);
-      }).catch(()=>{});
-    }
-  },[]);
+  const MOTIVATOR_ICON={urgency:"◎",challenge:"◈",interest:"◇",novelty:"◉",meaning:"◆"};
+  const FILTER_OPTS=[
+    {id:"all",label:"All"},{id:"urgent",label:"Urgent"},
+    {id:"area:work",label:"Work"},{id:"area:health",label:"Health"},
+    {id:"area:relationships",label:"Relationships"},{id:"area:money",label:"Money"},
+    {id:"area:home",label:"Home"},{id:"area:contribution",label:"Contribution"},
+    {id:"area:meaning",label:"Meaning"},{id:"parked",label:"Parked"},
+  ];
+
+  const confirmedIds=new Set(workTasks.map(t=>t.id));
+
+  const markDone=(id)=>{ setTasks(p=>p.map(t=>t.id===id?{...t,done:true}:t)); setWorkTasks(p=>p.filter(t=>t.id!==id)); setTop10Candidates(p=>p.filter(c=>c.task.id!==id)); };
+  const deleteTask=(id)=>{ setTasks(p=>p.filter(t=>t.id!==id)); setWorkTasks(p=>p.filter(t=>t.id!==id)); setTop10Candidates(p=>p.filter(c=>c.task.id!==id)); };
+  const openTask=(task)=>{ setSelected(task); setSheetOpen(true); };
+
+  const confirmTask=(task)=>{
+    setWorkTasks(prev=>{
+      if(prev.find(t=>t.id===task.id)) return prev.filter(t=>t.id!==task.id);
+      if(prev.length>=3) return prev;
+      return [...prev,task];
+    });
+  };
+
+  const buildEmotionalSignal=()=>{
+    const last7=[]; const nowD=new Date();
+    for(let i=0;i<7;i++){ const d=new Date(nowD-i*86400000).toISOString().split("T")[0]; last7.push(localRatings[d]||"?"); }
+    const hardCount=last7.filter(x=>x==="Hard").length;
+    return { last7Days:last7, hardStreak:hardCount>=3?"elevated":hardCount>=1?"some difficulty":"stable" };
+  };
+
+  const loadCandidates=()=>{
+    const activeTasks=tasks.filter(t=>!t.done);
+    if(!activeTasks.length) return;
+    const emotional_signal=buildEmotionalSignal();
+    const calendar_events=(captures||[]).filter(c=>c.type==="calendar-event").map(c=>({text:c.text||c.label||""})).filter(c=>c.text);
+    setCandidatesLoading(true);
+    fetch("/api/top3",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({tasks:activeTasks,captures:captures||[],userId,emotional_signal,calendar_events})
+    }).then(r=>r.json()).then(data=>{
+      const cands=(data.picks||[]).map(p=>{ const task=activeTasks[p.index]; return task?{task,framing:{motivator:p.motivator,whyToday:p.whyToday}}:null; }).filter(Boolean);
+      setTop10Candidates(cands);
+      if(data.observation) setPlanObservation(data.observation);
+      if(data.reflective_question) setPlanQuestion(data.reflective_question);
+    }).catch(()=>{}).finally(()=>setCandidatesLoading(false));
+  };
+
+  useEffect(()=>{ if(tasks.filter(t=>!t.done).length>0&&top10Candidates.length===0) loadCandidates(); },[]);
+
+  const allTasksFiltered=useMemo(()=>{
+    let list=tasks.filter(t=>!t.done);
+    if(allTasksFilter==="parked") return list.filter(isParked);
+    if(allTasksFilter==="urgent") list=list.filter(t=>t.urgency==="now"||(t.dueDate&&new Date(t.dueDate)<=new Date(Date.now()+2*86400000)));
+    else if(allTasksFilter.startsWith("area:")) list=list.filter(t=>t.area===allTasksFilter.replace("area:",""));
+    else list=list.filter(t=>!isParked(t));
+    return list;
+  },[tasks,allTasksFilter]);
+
   return (
-    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 20px"}}>
-      {/* ── Header ── */}
+    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 40px"}}>
+      {/* Header */}
       <div style={{padding:"16px 20px 0",background:T.bg}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
-          <div style={{height:"100%",background:T.accent,borderRadius:2,width:workTasks.length===0?"0%":(Math.min(workTasks.length,3)/3*100)+"%",transition:"width 0.4s"}}/>
+          <div style={{height:"100%",background:T.accent,borderRadius:2,width:workTasks.length===0?"0%":((workTasks.length/3)*100)+"%",transition:"width 0.4s"}}/>
         </div>
-        {/* Sub-nav — underline tab style */}
         <div style={{display:"flex",marginTop:14,marginLeft:-20,marginRight:-20,paddingLeft:20,paddingRight:20,borderBottom:"1px solid "+T.divider}}>
-          {["Agenda","Calendar"].map(v=>{
-            const active=planView===v.toLowerCase();
-            return (
-              <button key={v} onClick={()=>setPlanView(v.toLowerCase())} style={{flex:1,textAlign:"center",padding:"8px 0 11px",border:"none",background:"transparent",borderBottom:"2px solid "+(active?T.accent:T.divider),color:active?T.text:T.sub,fontSize:13,fontWeight:active?600:400,cursor:"pointer",fontFamily:"inherit",marginBottom:-1,transition:"all 0.2s"}}>
-                {v}
-              </button>
-            );
+          {["Today","Calendar"].map(v=>{
+            const key=v.toLowerCase();
+            const active=planView===key;
+            return <button key={v} onClick={()=>setPlanView(key)} style={{flex:1,textAlign:"center",padding:"8px 0 11px",border:"none",background:"transparent",borderBottom:"2px solid "+(active?T.accent:T.divider),color:active?T.text:T.sub,fontSize:13,fontWeight:active?600:400,cursor:"pointer",fontFamily:"inherit",marginBottom:-1,transition:"all 0.2s"}}>{v}</button>;
           })}
         </div>
       </div>
 
       <div style={{padding:"14px 20px 0"}}>
-        {planView==="agenda"?(
+        {planView==="today"?(
           <>
-            {/* Observation — shown when the algorithm has something to say */}
-            {planObservation&&(
-              <div style={{background:T.card,borderRadius:12,padding:"11px 14px",marginBottom:12,border:"1px solid "+T.border,borderLeft:"2px solid "+T.accent}}>
-                <div style={{fontSize:12,color:T.sub,fontStyle:"italic",lineHeight:1.55,fontFamily:"'Lora',serif"}}>{planObservation}</div>
-              </div>
-            )}
-            {/* Individual day-block cards: Morning → Startup → Work Block → Shutdown → Evening */}
-            {[
-              ...CAL_ROUTINE_DEFS.slice(0,2),
-              {id:"workblock",label:"Work Block",time:"9:15 AM",isWorkBlock:true},
-              ...CAL_ROUTINE_DEFS.slice(2),
-            ].map(block=>{
-              const isExp=routinesExp[block.id];
-              const mins=block.isWorkBlock?workBlockMins:block.steps.reduce((a,s)=>a+s.dur,0);
-              const h=Math.floor(mins/60),m=mins%60;
-              const durStr=h>0?`${h}h${m>0?" "+m+"m":""}`:m+" min";
-              const allDone=!block.isWorkBlock&&block.steps.every(s=>routineDone[s.id]);
-              return (
-                <div key={block.id} style={{marginBottom:10,background:T.card,borderRadius:16,border:"1px solid "+(allDone?T.divider:T.border),overflow:"hidden",opacity:allDone?0.4:1,transition:"opacity 0.3s"}}>
-                  <div onClick={()=>setRoutinesExp(p=>({...p,[block.id]:!p[block.id]}))} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px",cursor:"pointer"}}>
-                    <div>
-                      <div style={{fontSize:16,fontWeight:600,color:block.isMorning?T.accent:T.text,lineHeight:1,marginBottom:4}}>{block.label}</div>
-                      <div style={{fontSize:12,color:T.muted}}>
-                        {block.isWorkBlock?workTasks.length+" tasks · "+durStr:block.time+" · "+durStr}
-                      </div>
-                    </div>
-                    {CHEVRON(T.sub,isExp)}
-                  </div>
-                  {isExp&&(
-                    <div style={{borderTop:"1px solid "+T.divider,padding:"12px 18px",display:"flex",flexDirection:"column",gap:8}}
-                      onDragOver={block.isWorkBlock?(e=>e.preventDefault()):undefined}
-                      onDrop={block.isWorkBlock?onWBDrop:undefined}>
-                      {!block.isWorkBlock&&block.steps.map(s=>(
-                        <div key={s.id} onClick={e=>{e.stopPropagation();setRoutineDone(p=>({...p,[s.id]:!p[s.id]}));}} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",padding:"3px 0"}}>
-                          <div style={{width:20,height:20,borderRadius:"50%",border:routineDone[s.id]?"none":"1.5px solid "+T.sub,background:routineDone[s.id]?T.accent:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
-                            {routineDone[s.id]&&CHECK_SVG(T.accentText)}
-                          </div>
-                          <span style={{flex:1,fontSize:14,color:routineDone[s.id]?T.sub:T.text,textDecoration:routineDone[s.id]?"line-through":"none"}}>{s.text}</span>
-                          <span style={{fontSize:12,color:T.muted}}>{s.dur} min</span>
-                        </div>
-                      ))}
-                      {block.isWorkBlock&&(
-                        <>
-                          {workTasks.length===0&&(
-                            <div style={{textAlign:"center",padding:"16px 0",color:T.muted,fontSize:13,fontStyle:"italic",border:"1.5px dashed "+T.divider,borderRadius:10}}>
-                              Drag tasks from below, or tap +
-                            </div>
-                          )}
-                          {workTasks.map((task,idx)=>{
-                            const frame=taskFraming[String(task.id)];
-                            const MOTIVATOR_ICON={urgency:"◎",challenge:"◈",interest:"◇",novelty:"◉",meaning:"◆"};
-                            return(
-                            <div key={task.id} draggable
-                              onDragStart={()=>onWDS(idx)}
-                              onDragOver={e=>onWDO(e,idx)}
-                              onDrop={e=>onWDr(e,idx)}
-                              style={{borderRadius:12,border:"1.5px solid "+(wDragOver===idx?T.accent:T.border),background:wDragIdx===idx?T.surface+"80":T.surface,transition:"all 0.12s",cursor:"grab"}}>
-                              <div onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:frame?"11px 14px 6px":"11px 14px"}}>
-                                <div style={{width:22,height:22,borderRadius:"50%",background:idx<3?T.accentSoft:T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                  {idx<3?<span style={{fontSize:12,fontWeight:700,color:T.accent}}>{idx+1}</span>:<span style={{fontSize:11,color:T.sub}}>·</span>}
-                                </div>
-                                <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text}}>{task.label}</span>
-                                <span style={{fontSize:12,color:T.muted,flexShrink:0}}>{task.hours} {task.mins}</span>
-                                <button onClick={e=>{e.stopPropagation();markDone(task.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginLeft:4}}><svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-                                <button onClick={e=>{e.stopPropagation();removeFromWork(task.id);}} style={{background:"none",border:"none",color:T.sub,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
-                              </div>
-                              {frame&&frame.whyToday&&(
-                                <div style={{display:"flex",alignItems:"center",gap:6,padding:"0 14px 10px 46px"}}>
-                                  <span style={{fontSize:10,color:T.accent,opacity:0.7}}>{MOTIVATOR_ICON[frame.motivator]||"◇"}</span>
-                                  <span style={{fontSize:11,color:T.sub,fontStyle:"italic",lineHeight:1.4}}>{frame.whyToday}</span>
-                                </div>
-                              )}
-                            </div>
-                            );
-                          })}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {/* Algorithm observation */}
+            {planObservation&&<div style={{background:T.card,borderRadius:12,padding:"11px 14px",marginBottom:planQuestion?6:12,border:"1px solid "+T.border,borderLeft:"2px solid "+T.accent}}><div style={{fontSize:12,color:T.sub,fontStyle:"italic",lineHeight:1.55,fontFamily:"'Lora',serif"}}>{planObservation}</div></div>}
+            {/* Reflective question */}
+            {planQuestion&&<div style={{background:T.surface,borderRadius:12,padding:"10px 14px",marginBottom:14,border:"1px solid "+T.divider}}><div style={{fontSize:12,color:T.muted,lineHeight:1.55}}>{planQuestion}</div></div>}
 
-            {/* All tasks — drag to Work Block or tap + to add */}
+            {/* Today's focus — 3 confirmation slots */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Today's focus</div>
+              {[0,1,2].map(i=>{
+                const confirmed=workTasks[i];
+                return (
+                  <div key={i} style={{marginBottom:6,minHeight:52,borderRadius:12,
+                    border:"1.5px "+(confirmed?"solid "+T.border:"dashed "+T.divider),
+                    background:confirmed?T.card:"transparent",
+                    display:"flex",alignItems:"center",padding:"10px 14px",gap:10,transition:"all 0.2s"}}>
+                    <div style={{width:22,height:22,borderRadius:"50%",
+                      background:confirmed?T.accent:T.surface,
+                      border:"1.5px solid "+(confirmed?T.accent:T.border),
+                      display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}>
+                      <span style={{fontSize:11,fontWeight:700,color:confirmed?T.accentText:T.muted}}>{i+1}</span>
+                    </div>
+                    {confirmed?(
+                      <>
+                        <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{confirmed.label}</span>
+                        <button onClick={()=>markDone(confirmed.id)} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </button>
+                        <button onClick={()=>confirmTask(confirmed)} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                      </>
+                    ):(
+                      <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Pick from below</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Top 10 candidates */}
             <div style={{marginBottom:16}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>All tasks</div>
-                <div style={{fontSize:11,color:T.muted}}>{listTasks.length} remaining</div>
+                <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>
+                  {candidatesLoading?"Finding your best moves…":"Suggested for today"}
+                </div>
+                {!candidatesLoading&&<button onClick={()=>{ setTop10Candidates([]); setPlanObservation(null); setPlanQuestion(null); loadCandidates(); }} style={{fontSize:11,color:T.muted,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Refresh</button>}
               </div>
-              {listTasks.length===0?(
-                <div style={{textAlign:"center",padding:"24px 20px",color:T.muted,fontSize:13,fontStyle:"italic"}}>
-                  {tasks.filter(t=>!t.done).length===0?"No tasks yet — brain dump to add some.":"All tasks added to Work Block."}
+              {candidatesLoading?(
+                <div style={{display:"flex",gap:4,padding:"16px 0",justifyContent:"center"}}>
+                  {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
+                </div>
+              ):top10Candidates.length===0?(
+                <div style={{textAlign:"center",padding:"20px 0",color:T.muted,fontSize:13,fontStyle:"italic"}}>
+                  {tasks.filter(t=>!t.done).length===0?"No tasks yet — brain dump to get started.":"Tap Refresh to get suggestions."}
                 </div>
               ):(
                 <div style={{background:T.card,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
-                  {listTasks.map((task,i)=>(
-                    <div key={task.id} draggable onDragStart={()=>setDragId(String(task.id))} onClick={()=>openTask(task)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i>0?"1px solid "+T.divider:"none",cursor:"pointer",opacity:dragId===String(task.id)?0.4:1}}>
-                      <AreaIconSVG id={task.area} size={12} color={T.sub}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:T.text,marginBottom:1}}>{task.label}</div>
-                        {task.dueDate&&<div style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</div>}
+                  {top10Candidates.map(({task,framing},idx)=>{
+                    const isConf=confirmedIds.has(task.id);
+                    const slotsLeft=3-workTasks.length;
+                    return (
+                      <div key={task.id} style={{borderTop:idx>0?"1px solid "+T.divider:"none",background:isConf?T.accentSoft:"transparent",transition:"background 0.2s"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,padding:framing?.whyToday?"11px 14px 5px":"11px 14px",cursor:"pointer"}} onClick={()=>openTask(task)}>
+                          <div style={{width:22,height:22,borderRadius:"50%",background:isConf?T.accent:T.surface,border:"1.5px solid "+(isConf?T.accent:T.border),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}>
+                            <span style={{fontSize:10,fontWeight:700,color:isConf?T.accentText:T.muted}}>{idx+1}</span>
+                          </div>
+                          <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</span>
+                          <span style={{fontSize:11,color:T.muted,flexShrink:0}}>{task.hours}{task.hours!=="0h"?" ":""}{task.mins}</span>
+                          <button onClick={e=>{ e.stopPropagation(); confirmTask(task); }}
+                            style={{width:28,height:28,borderRadius:"50%",
+                              border:"1.5px solid "+(isConf?T.accent:slotsLeft>0?T.accent:T.border),
+                              background:isConf?T.accent:slotsLeft>0?T.accentSoft:"transparent",
+                              display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                              cursor:slotsLeft>0||isConf?"pointer":"default",transition:"all 0.15s"}}>
+                            {isConf
+                              ?<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                              :<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={slotsLeft>0?T.accent:T.muted} strokeWidth="2" strokeLinecap="round"/></svg>
+                            }
+                          </button>
+                        </div>
+                        {framing?.whyToday&&(
+                          <div style={{display:"flex",alignItems:"center",gap:6,padding:"0 14px 10px 46px"}}>
+                            <span style={{fontSize:10,color:T.accent,opacity:0.7}}>{MOTIVATOR_ICON[framing.motivator]||"◇"}</span>
+                            <span style={{fontSize:11,color:T.sub,fontStyle:"italic",lineHeight:1.4}}>{framing.whyToday}</span>
+                          </div>
+                        )}
                       </div>
-                      <button title="Add to Work Block" onClick={e=>{e.stopPropagation();addToWork(task);}} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+T.accent,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",transition:"all 0.2s"}}>
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.accent} strokeWidth="2" strokeLinecap="round"/></svg>
-                      </button>
-                      <button title="Delete task" onClick={e=>{e.stopPropagation();deleteTask(task.id);}} style={{width:26,height:26,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0,marginLeft:2}}>
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* All tasks — collapsible with filters */}
+            <div>
+              <button onClick={()=>setShowAllTasks(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",background:T.card,borderRadius:showAllTasks?"12px 12px 0 0":"12px",border:"1px solid "+T.border,borderBottom:showAllTasks?"1px solid "+T.divider:"1px solid "+T.border,cursor:"pointer",fontFamily:"inherit",transition:"border-radius 0.2s"}}>
+                <div style={{fontSize:13,fontWeight:500,color:T.text}}>All tasks</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:T.muted}}>{tasks.filter(t=>!t.done).length} remaining</span>
+                  {CHEVRON(T.sub,showAllTasks)}
+                </div>
+              </button>
+              {showAllTasks&&(
+                <div style={{background:T.card,borderRadius:"0 0 12px 12px",border:"1px solid "+T.border,borderTop:"none",overflow:"hidden"}}>
+                  <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",scrollbarWidth:"none"}}>
+                    {FILTER_OPTS.map(opt=>(
+                      <button key={opt.id} onClick={()=>setAllTasksFilter(opt.id)} style={{flexShrink:0,padding:"5px 11px",borderRadius:20,border:"1px solid "+(allTasksFilter===opt.id?T.accent:T.border),background:allTasksFilter===opt.id?T.accentSoft:"transparent",color:allTasksFilter===opt.id?T.accent:T.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.15s"}}>{opt.label}</button>
+                    ))}
+                  </div>
+                  {allTasksFiltered.length===0?(
+                    <div style={{padding:"20px 14px",textAlign:"center",color:T.muted,fontSize:13,fontStyle:"italic"}}>
+                      {allTasksFilter==="parked"?"No parked tasks.":"Nothing in this view."}
                     </div>
-                  ))}
+                  ):(
+                    allTasksFiltered.map((task,i)=>(
+                      <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:"1px solid "+T.divider,cursor:"pointer"}} onClick={()=>openTask(task)}>
+                        <AreaIconSVG id={task.area} size={12} color={T.sub}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</div>
+                          <div style={{display:"flex",gap:6,alignItems:"center",marginTop:1}}>
+                            {task.dueDate&&<span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
+                            {isParked(task)&&<span style={{fontSize:10,color:T.muted,background:T.surface,borderRadius:4,padding:"1px 5px"}}>parked</span>}
+                          </div>
+                        </div>
+                        <button title={confirmedIds.has(task.id)?"Remove from focus":"Add to focus"} onClick={e=>{ e.stopPropagation(); confirmTask(task); }} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+(confirmedIds.has(task.id)?T.accent:T.border),background:confirmedIds.has(task.id)?T.accent:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",transition:"all 0.15s"}}>
+                          {confirmedIds.has(task.id)?<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>:<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.accent} strokeWidth="2" strokeLinecap="round"/></svg>}
+                        </button>
+                        <button title="Delete" onClick={e=>{ e.stopPropagation(); deleteTask(task.id); }} style={{width:26,height:26,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0,marginLeft:2}}>
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
           </>
         ):(
-          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
+          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={()=>{}} markDone={markDone}/>
         )}
       </div>
-      <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}}/>
+      <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}} onGetUnstuck={onGetUnstuck}/>
     </div>
   );
 }
@@ -2051,9 +2124,10 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
           <div style={{background:T.card,borderRadius:16,padding:"16px",marginTop:12,border:"1px solid "+T.border}}>
             <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:T.accent,marginBottom:14}}>In your own words</div>
             {[
-              {key:"happened",  label:"What happened today?",           ph:"Just the highlights…"},
-              {key:"challenging",label:"What was challenging?",          ph:"Be honest with yourself…"},
-              {key:"different", label:"What would you like to be different tomorrow?", ph:"One thing…"},
+              {key:"happened",   label:"What happened today?",         ph:"Just the highlights…"},
+              {key:"challenging",label:"What was challenging?",        ph:"Be honest with yourself…"},
+              {key:"intention",  label:"One intention for tomorrow",   ph:"Something small, concrete…"},
+              {key:"grateful",   label:"One thing I'm grateful for today", ph:"It doesn't have to be big…"},
             ].map((field,i,arr)=>(
               <div key={field.key} style={{paddingBottom:i<arr.length-1?14:0,marginBottom:i<arr.length-1?14:0,borderBottom:i<arr.length-1?"1px solid "+T.divider:"none"}}>
                 <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:6}}>{field.label}</div>
@@ -2069,6 +2143,84 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── VOICE VISUAL ─────────────────────────────────────────────────────────────
+function VoiceVisual({T, text}) {
+  const words=(text||"").trim().split(/\s+/).filter(Boolean);
+  const recent=words.slice(-10);
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",overflow:"hidden"}}>
+      <div style={{fontSize:11,color:T.accent,letterSpacing:"2px",textTransform:"uppercase",marginBottom:20,opacity:0.8}}>I have you. Keep going.</div>
+      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:6,maxWidth:280,marginBottom:28,minHeight:80}}>
+        {recent.length===0
+          ?<div style={{fontSize:16,color:T.muted,fontStyle:"italic",fontFamily:"'Lora',serif",alignSelf:"center"}}>Listening…</div>
+          :recent.map((word,i)=>{
+            const fromEnd=recent.length-1-i;
+            const opacity=Math.max(0.12,1-fromEnd*0.1);
+            return <span key={i} style={{fontSize:17,fontFamily:"'Lora',serif",color:T.text,opacity,transition:"opacity 0.3s",lineHeight:1.7}}>{word}</span>;
+          })
+        }
+      </div>
+      <div style={{display:"flex",gap:5}}>
+        {[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
+      </div>
+    </div>
+  );
+}
+
+// ── ONBOARDING ────────────────────────────────────────────────────────────────
+function OnboardingScreen({T, onComplete}) {
+  const [step,setStep]=useState(0);
+  const [name,setName]=useState("");
+  if(step===0) return (
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:T.bg,fontFamily:"'DM Sans',sans-serif",padding:"60px 36px 40px",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center",marginBottom:48}}>
+        <div style={{fontSize:30,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-0.5px",marginBottom:8}}>steady<span style={{color:T.accent}}>.</span></div>
+        <div style={{fontSize:13,color:T.muted,letterSpacing:"0.2px"}}>the calming home for an ADHD brain</div>
+      </div>
+      <div style={{width:"100%",maxWidth:320,marginBottom:48}}>
+        <div style={{fontSize:16,color:T.sub,fontFamily:"'Lora',serif",marginBottom:20,textAlign:"center",lineHeight:1.6}}>What would you like to be called?</div>
+        <input
+          value={name} onChange={e=>setName(e.target.value)}
+          placeholder="First name (optional)"
+          autoFocus
+          style={{width:"100%",padding:"14px 16px",borderRadius:14,border:"1px solid "+T.border,background:T.card,color:T.text,fontSize:16,fontFamily:"'DM Sans',sans-serif",outline:"none",textAlign:"center",WebkitAppearance:"none"}}
+        />
+      </div>
+      <button onClick={()=>setStep(1)} style={{padding:"14px 40px",borderRadius:24,border:"none",background:T.accent,color:T.accentText,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+        {name.trim()?`Let's go, ${name.trim().split(" ")[0]}.`:"Let's go →"}
+      </button>
+      <div style={{marginTop:16,fontSize:12,color:T.muted,fontStyle:"italic",textAlign:"center"}}>No account needed. Your data stays on your device.</div>
+    </div>
+  );
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:T.bg,fontFamily:"'DM Sans',sans-serif",padding:"60px 36px 40px",overflowY:"auto"}}>
+      <div style={{maxWidth:340,margin:"0 auto",width:"100%"}}>
+        <div style={{fontSize:22,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-0.3px",marginBottom:6,textAlign:"center"}}>steady is built for<br/>how your brain works.</div>
+        <div style={{fontSize:13,color:T.muted,textAlign:"center",marginBottom:36}}>Three things. All connected.</div>
+        {[
+          {icon:"○", title:"Brain dump", desc:"Get it out of your head. Tasks, worries, ideas — anything. steady sorts it automatically."},
+          {icon:"◈", title:"Today", desc:"An algorithm finds your best moves for the day. You confirm the ones that feel right. Nothing auto-fills."},
+          {icon:"◇", title:"Journal", desc:"Your day's conversation becomes a story. Patterns surface over time."},
+        ].map((item,i)=>(
+          <div key={i} style={{display:"flex",gap:14,marginBottom:12,padding:"14px 16px",background:T.card,borderRadius:14,border:"1px solid "+T.border}}>
+            <div style={{fontSize:18,color:T.accent,flexShrink:0,marginTop:2}}>{item.icon}</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:3}}>{item.title}</div>
+              <div style={{fontSize:13,color:T.sub,lineHeight:1.55}}>{item.desc}</div>
+            </div>
+          </div>
+        ))}
+        <div style={{display:"flex",justifyContent:"center",marginTop:28}}>
+          <button onClick={onComplete} style={{padding:"14px 40px",borderRadius:24,border:"none",background:T.accent,color:T.accentText,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            Start steady. →
+          </button>
+        </div>
+        <div style={{textAlign:"center",marginTop:14,fontSize:12,color:T.muted,fontStyle:"italic"}}>You can explore everything at your own pace.</div>
+      </div>
     </div>
   );
 }
@@ -2101,6 +2253,7 @@ export default function App() {
   const chatContentRef=useRef(null);
   const recognitionRef=useRef(null);
   const [isListening,setIsListening]=useState(false);
+  const [onboarded,setOnboarded]=useState(()=>{ try{return !!localStorage.getItem("steady_onboarded");}catch{return true;} });
   const T=dark?DARK:LIGHT;
 
   useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
@@ -2139,6 +2292,8 @@ export default function App() {
     </div>
   );
   if (!session && !devBypass) return <AuthScreen dark={dark} onSkip={() => setDevBypass(true)} />;
+  if (!onboarded) return <OnboardingScreen T={T} onComplete={()=>{ localStorage.setItem("steady_onboarded","1"); localStorage.setItem("steady_name",JSON.stringify("")); setOnboarded(true); setTasks([]); setCaptures([]); }}/>;
+
 
   const openSheet=(id,prompt=null,text="")=>{
     setChatInitialText(text);
@@ -2163,9 +2318,10 @@ export default function App() {
   };
 
   const CHIPS=[
-    {label:"Plan",     action:()=>openSheet("plan")},
+    {label:"Today",    action:()=>openSheet("plan")},
     {label:"Life Map", action:()=>openSheet("lifemap")},
     {label:"Journal",  action:()=>openSheet("journal")},
+    {label:"Stuck?",   action:()=>openSheet("chat",null,"I'm feeling stuck and don't know what to do next. Help me figure out my best next move.")},
   ];
 
   return (
@@ -2182,16 +2338,28 @@ export default function App() {
         </div>
 
         {/* ── HOME CONTENT ── */}
-        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 100px",overflow:"hidden"}}>
-          <div style={{textAlign:"center",marginBottom:48}}>
-            <div style={{fontSize:13,color:T.muted,marginBottom:20,letterSpacing:"0.2px"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
-            <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:14}}>What's on<br/>your mind?</div>
-            <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
-          </div>
+        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 100px",overflow:"hidden",transition:"all 0.3s"}}>
+          {isListening?(
+            <VoiceVisual T={T} text={chatBarInput}/>
+          ):(
+            <div style={{textAlign:"center",marginBottom:48}}>
+              <div style={{fontSize:13,color:T.muted,marginBottom:20,letterSpacing:"0.2px"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
+              <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:14}}>What's on<br/>your mind?</div>
+              <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
+            </div>
+          )}
         </div>
 
         {/* ── PERSISTENT CHAT BAR — always visible, above all sheets ── */}
         <div ref={chatBarRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,borderTop:"1px solid "+T.divider,padding:"10px 20px 28px",background:T.bg,transition:"background 0.4s"}}>
+          {/* Quick access chips */}
+          <div style={{display:"flex",gap:8,marginBottom:10,overflowX:"auto",scrollbarWidth:"none"}}>
+            {CHIPS.map(chip=>(
+              <button key={chip.label} onClick={chip.action} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:"1px solid "+T.border,background:T.card,color:T.sub,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.15s"}}>
+                {chip.label}
+              </button>
+            ))}
+          </div>
           <div style={{background:T.card,borderRadius:24,padding:"10px 12px 10px 18px",border:"1px solid "+T.border,display:"flex",alignItems:"center",gap:8}}>
             <textarea
               ref={chatBarInputRef}
@@ -2247,7 +2415,7 @@ export default function App() {
           />}
         </Sheet>
         <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
-          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id}/>}
+          {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id} onGetUnstuck={(task)=>{ closeSheet(); setTimeout(()=>openSheet("chat",null,`I'm feeling stuck on "${task?.label||"a task"}". Help me break this down and figure out my next step.`),320); }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
           {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
