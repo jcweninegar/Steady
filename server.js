@@ -16,7 +16,7 @@ const supabaseAdmin = SUPABASE_SERVICE_KEY
 async function getJournalHistory(userId) {
   if (!supabaseAdmin || !userId || userId === "dev") return [];
   try {
-    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0];
+    const cutoff = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA");
     const { data, error } = await supabaseAdmin
       .from("journal_entries")
       .select("date,chat_messages,captures,completed_tasks,life_area_activity,day_rating,user_notes")
@@ -51,7 +51,7 @@ app.use(express.json());
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-async function callAnthropic(system, messages, max_tokens = 1000) {
+async function callModel(model, system, messages, max_tokens) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -59,12 +59,7 @@ async function callAnthropic(system, messages, max_tokens = 1000) {
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens,
-      system,
-      messages,
-    }),
+    body: JSON.stringify({ model, max_tokens, system, messages }),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -73,6 +68,17 @@ async function callAnthropic(system, messages, max_tokens = 1000) {
   const data = await res.json();
   return data.content?.[0]?.text || "";
 }
+
+// Haiku — fast & cheap, used for all conversational + structured endpoints
+const callAnthropic = (system, messages, max_tokens = 700) =>
+  callModel("claude-3-5-haiku-20241022", system, messages, max_tokens);
+
+// Sonnet — higher quality, reserved for journal prose generation only
+const callSonnet = (system, messages, max_tokens = 500) =>
+  callModel("claude-sonnet-4-6", system, messages, max_tokens);
+
+// Compact ADHD context sent in chat calls instead of the full knowledge base (~9k tokens → ~80 tokens)
+const ADHD_BRIEF = `ADHD core: Executive dysfunction, working memory deficits, time blindness, and emotional dysregulation are neurological — not character flaws. ADHD brains run on Dodson's motivators: Interest, Challenge, Urgency, Novelty, Meaning. Shame spirals are counterproductive. Task initiation is harder than completion. One small next step beats a perfect plan.`;
 
 // ── Brain dump extraction ────────────────────────────────────────────────────
 app.post("/api/extract", async (req, res) => {
@@ -207,7 +213,7 @@ Return ONLY this JSON:
 }`;
 
   try {
-    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 900);
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 500);
     const clean = raw.replace(/```json|```/g, "").trim();
     const result = JSON.parse(clean);
     res.json({ tasks: result.tasks || tasks, acknowledgment: result.acknowledgment || "Got it." });
@@ -255,9 +261,7 @@ app.post("/api/braindump-chat", async (req, res) => {
 
   const system = `You are steady., a calm ADHD support companion and second brain.
 Today: ${todayFull} (${today})
-
-KNOWLEDGE BASE — use this to inform all responses:
-${knowledgeBase}
+${ADHD_BRIEF}
 ${historyBlock}
 
 The user's current tasks:
@@ -279,7 +283,7 @@ Your role: help the user through natural conversation. Use your knowledge of ADH
       content: m.content || m.text || "",
     })).filter(m => m.content.trim());
 
-    const rawReply = await callAnthropic(system, formatted, 1200);
+    const rawReply = await callAnthropic(system, formatted, 400);
 
     const taskMatch = rawReply.match(/<tasks>([\s\S]*?)<\/tasks>/);
     let updatedTasks = null;
@@ -302,27 +306,21 @@ app.post("/api/chat", async (req, res) => {
   const { messages } = req.body;
   if (!messages) return res.status(400).json({ error: "messages required" });
 
-  const system = `You are steady., a second brain and ADHD support companion. You help adults with ADHD capture thoughts, manage tasks, and build a life that works.
+  const today = new Date().toLocaleDateString("en-CA");
+  const todayFull = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
+  const system = `You are steady., a second brain and ADHD support companion.
+Today: ${todayFull} (${today})
+${ADHD_BRIEF}
 
-KNOWLEDGE BASE — use this to inform all responses:
-${knowledgeBase}
+Your role: help adults with ADHD capture thoughts, manage tasks, and build a life that works. Be calm, warm, and direct — never clinical or preachy. Keep responses concise — ADHD brains don't need walls of text. When someone seems overwhelmed, offer one small next step. When someone expresses shame, gently anchor to neuroscience.
 
-Your role:
-- Receive brain dumps (tasks, worries, ideas, anything) and acknowledge them warmly
-- Help users figure out what to do next when they're stuck
-- Answer questions about ADHD, executive function, time blindness, emotional dysregulation, and task initiation — grounded in the research above
-- Be calm, warm, and direct — never clinical or preachy
-- Keep responses concise and actionable — ADHD brains don't need walls of text
-- When someone seems overwhelmed, name it gently and offer one small next step
-- When someone expresses shame or self-blame, gently reflect what the research says (it's neurological, not a character flaw) without being preachy about it
-
-Tone: like a calm, smart friend who gets it. Not a therapist. Not a productivity guru. Just steady.`;
+Tone: calm, smart friend who gets it. Not a therapist. Not a productivity guru. Just steady.`;
 
   try {
     const formatted = messages
       .filter(m => m.role === "user" || m.role === "ai")
       .map(m => ({ role: m.role === "ai" ? "assistant" : "user", content: m.text }));
-    const reply = await callAnthropic(system, formatted, 600);
+    const reply = await callAnthropic(system, formatted, 350);
     res.json({ reply });
   } catch (e) {
     console.error("Chat error:", e.message);
@@ -353,7 +351,7 @@ Rules:
   const prompt = `Write my journal entry for today.\n\nThings on my mind today:\n- ${captureText}\n\nWhat I got done: ${taskText}\nHow the day felt: ${rating || "not rated"}`;
 
   try {
-    const narrative = await callAnthropic(system, [{ role: "user", content: prompt }], 500);
+    const narrative = await callSonnet(system, [{ role: "user", content: prompt }], 500);
     res.json({ narrative });
   } catch (e) {
     console.error("Journal error:", e.message);
@@ -414,8 +412,7 @@ app.post("/api/top3", async (req, res) => {
   const history = await getJournalHistory(userId);
   const historyBlock = formatHistoryForAI(history);
 
-  const system = `${knowledgeBase}
-${historyBlock}
+  const system = `${historyBlock}
 
 ━━━ THE STEADY ALGORITHM ━━━
 You are the steady. prioritization engine. Rank the 10 best tasks for this user today using the algorithm below. Return exactly 10 picks (or all available tasks if fewer than 10).
@@ -476,7 +473,7 @@ LIFE AREAS: ${areaLine}
 RECENT BRAIN DUMP CAPTURES: ${captureText}`;
 
   try {
-    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 900);
+    const raw = await callAnthropic(system, [{ role: "user", content: prompt }], 600);
     const clean = raw.replace(/```json|```/g, "").trim();
     const result = JSON.parse(clean);
     res.json(result);
