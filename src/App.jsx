@@ -1379,16 +1379,33 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
       if(e.target.closest('[data-no-drag]')) return;
       const editingId=editingBlockIdRef.current;
 
-      // Resize handle — only available once block is in edit mode
+      // Resize handle
       const resizeZone=e.target.closest('[data-resize-zone]');
       if(resizeZone){
         const blockId=resizeZone.dataset.resizeZone;
-        if(editingId!==blockId){ if(editingId){editingBlockIdRef.current=null;setEditingBlockId(null);} return; }
-        e.preventDefault();
         const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
         if(!block) return;
-        gestureRef.current={type:"resize",y:e.touches[0].clientY,id:block.id,origDur:block.dur};
-        setGesture("resize-"+block.id);
+        if(editingId===blockId){
+          // Already in edit mode — start resize immediately
+          e.preventDefault();
+          gestureRef.current={type:"resize",y:e.touches[0].clientY,id:block.id,origDur:block.dur};
+          setGesture("resize-"+block.id);
+        } else {
+          // Not in edit mode — long-press enters edit mode and immediately arms resize
+          if(editingId){editingBlockIdRef.current=null;setEditingBlockId(null);}
+          const startY=e.touches[0].clientY;
+          longPressRef.current={
+            blockId,startY,
+            timer:setTimeout(()=>{
+              if(navigator.vibrate) navigator.vibrate(35);
+              editingBlockIdRef.current=blockId;
+              setEditingBlockId(blockId);
+              gestureRef.current={type:"resize",y:startY,id:block.id,origDur:block.dur};
+              setGesture("resize-"+blockId);
+              longPressRef.current=null;
+            },400),
+          };
+        }
         return;
       }
 
