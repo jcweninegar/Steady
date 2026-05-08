@@ -1371,11 +1371,25 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     const grid=gridRef.current;
     if(!grid) return;
     const handler=(e)=>{
-      const zone=e.target.closest('[data-drag-zone]');
-      if(!zone||gestureRef.current) return;
+      if(gestureRef.current) return;
+      // Resize handle — activate immediately, no long-press
+      const resizeZone=e.target.closest('[data-resize-zone]');
+      if(resizeZone){
+        e.preventDefault();
+        const blockId=resizeZone.dataset.resizeZone;
+        const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
+        if(!block) return;
+        const cy=e.touches[0].clientY;
+        gestureRef.current={type:"resize",y:cy,id:block.id,origDur:block.dur};
+        setGesture("resize-"+block.id);
+        return;
+      }
+      // Drag zone — 400ms long-press to activate
+      const dragZone=e.target.closest('[data-drag-zone]');
+      if(!dragZone) return;
       e.preventDefault();
       const startY=e.touches[0].clientY;
-      const blockId=zone.dataset.dragZone;
+      const blockId=dragZone.dataset.dragZone;
       const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
       if(!block) return;
       const others=allBlocksRef.current.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
@@ -1502,7 +1516,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 {/* Resize handle */}
                 <div
                   onMouseDown={e=>startResize(e,block)}
-                  onTouchStart={e=>startResize(e,block)}
+                  data-resize-zone={String(block.id)}
                   style={{position:"absolute",bottom:0,left:0,right:0,height:28,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"18)",touchAction:"none"}}>
                   <div style={{width:32,height:3,background:T.accent+(isResizing?"cc":"55"),borderRadius:2,transition:"background 0.15s"}}/>
                 </div>
