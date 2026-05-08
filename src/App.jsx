@@ -44,7 +44,7 @@ const ChevronRight = ({c}) => <svg width="7" height="12" viewBox="0 0 7 12" fill
 const CheckIcon = ({c="#fff"}) => <svg width="10" height="8" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
 // ── SHEET WRAPPER — every screen uses this ────────────────────────────────────
-function Sheet({T, open, onClose, chatBarRef, children, title}) {
+function Sheet({T, open, onClose, chatBarRef, children, title, overflow="auto"}) {
   const sheetRef = useRef(null);
   const [visible, setVisible] = useState(false);
   const [sheetBottom, setSheetBottom] = useState(0);
@@ -96,7 +96,7 @@ function Sheet({T, open, onClose, chatBarRef, children, title}) {
           <div style={{width:44}}/>
         </div>
         {/* Content */}
-        <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        <div style={{flex:1,overflowY:overflow,WebkitOverflowScrolling:"touch",minHeight:0}}>
           {children}
         </div>
       </div>
@@ -2538,7 +2538,7 @@ export default function App() {
             }}
           />}
         </Sheet>
-        <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan">
+        <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan" overflow="hidden">
           {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id} onGetUnstuck={(task)=>{ closeSheet(); setTimeout(()=>openSheet("chat",null,`I'm feeling stuck on "${task?.label||"a task"}". Help me break this down and figure out my next step.`),320); }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
