@@ -1275,6 +1275,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const toY=(h,m)=>(h-START_H)*PX_HR+m*PX_MIN;
   const durStr=(m)=>{ const h=Math.floor(m/60),r=m%60; return h>0?`${h}h${r>0?" "+r+"m":""}`:r+"m"; };
   const fmtH=(h)=>h===0?"12am":h<12?`${h}am`:h===12?"12pm":`${h-12}pm`;
+  const fmtStart=(mins)=>{const h=Math.floor(mins/60),m=mins%60,b=h===0?"12":h<=12?`${h}`:`${h-12}`,s=h<12?"am":"pm";return m>0?`${b}:${String(m).padStart(2,"0")}${s}`:`${b}${s}`;};
   const hours=Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
 
   const stepTotal=(rb)=>rb.steps.reduce((a,s)=>a+s.dur,0);
@@ -1375,6 +1376,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     if(!grid) return;
     const handler=(e)=>{
       if(gestureRef.current) return;
+      if(e.target.closest('[data-no-drag]')) return;
       const editingId=editingBlockIdRef.current;
 
       // Resize handle — only available once block is in edit mode
@@ -1506,7 +1508,11 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
             const dimmed=!!editingBlockId&&!isEditing;
 
             return (
-              <div key={block.id} style={{
+              <div key={block.id}
+                data-drag-zone={String(block.id)}
+                onTouchMove={e=>onBlockTouchMove(e)}
+                onTouchEnd={()=>onBlockTouchEnd()}
+                style={{
                 position:"absolute",left:58,right:10,top:block.top,height:blockH,
                 background:T.card,
                 border:"1.5px solid "+(hasOverflow?"#E07A5F70":isDragging||isResizing||isEditing?T.accent:isOpen?T.accent+"80":T.border),
@@ -1517,37 +1523,32 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
                 userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",
               }}>
-                {/* Header — long-press body to drag, tap chevron to expand */}
+                {/* Header — long-press whole block to enter edit mode */}
                 <div style={{display:"flex",alignItems:"flex-start",height:blockH-28}}>
                   <div
                     onPointerDown={e=>{ if(e.pointerType==="mouse") startDrag(e,block); }}
-                    onTouchMove={e=>onBlockTouchMove(e)}
-                    onTouchEnd={()=>onBlockTouchEnd()}
-                    data-drag-zone={String(block.id)}
                     style={{flex:1,padding:"9px 4px 4px 12px",cursor:isDragging?"grabbing":isEditing?"grab":"default",touchAction:isEditing?"none":"pan-y",minWidth:0}}>
                     {blockH>=64?(
                       <>
                         <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
-                          {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
+                          <span style={{width:18,flexShrink:0,fontSize:15,color:T.accent,lineHeight:1,visibility:isEditing?"visible":"hidden",textAlign:"center"}}>⠿</span>
                           <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
                           {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
                         </div>
-                        <div style={{fontSize:10,color:T.sub,marginTop:3,fontVariantNumeric:"tabular-nums"}}>
-                          {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
+                        <div style={{fontSize:10,color:T.sub,marginTop:3,fontVariantNumeric:"tabular-nums",paddingLeft:23}}>
+                          {fmtStart(block.startMins)} · {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
                         </div>
                       </>
                     ):(
                       <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
-                        {isEditing&&<span style={{fontSize:12,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
-                        <span style={{fontSize:10,color:T.sub,flexShrink:0,fontVariantNumeric:"tabular-nums",lineHeight:1}}>
-                          {block.isWorkBlock?`${workTasks.length}t · ${durStr(workBlockMins)}`:durStr(block.dur)}
-                        </span>
+                        <span style={{width:18,flexShrink:0,fontSize:15,color:T.accent,lineHeight:1,visibility:isEditing?"visible":"hidden",textAlign:"center"}}>⠿</span>
+                        <span style={{fontSize:10,color:T.sub,flexShrink:0,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{fmtStart(block.startMins)}</span>
                         <span style={{fontSize:12,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{block.label}</span>
                         {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
                       </div>
                     )}
                   </div>
-                  <div onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
+                  <div data-no-drag onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
                     {isEditing
                       ? <span style={{fontSize:11,fontWeight:700,color:T.accent,letterSpacing:0.2}}>Done</span>
                       : CHEVRON(T.sub,isOpen)}
