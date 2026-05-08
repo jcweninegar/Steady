@@ -1983,7 +1983,7 @@ function EntryCard({T, dateLabel, entry, chatCount, onClick, ratingColor, isToda
   );
 }
 
-function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
+function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate, profile, signOut}) {
   const IC={
     chat:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H7l-5 5V5z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
     plan:(c)=><svg width="16" height="16" viewBox="0 0 20 20" fill="none"><rect x="2" y="3" width="16" height="15" rx="2" stroke={c} strokeWidth="1.5"/><path d="M7 1v4M13 1v4M2 8h16" stroke={c} strokeWidth="1.5" strokeLinecap="round"/><path d="M6 12h2M10 12h2M14 12h2M6 15h2M10 15h2" stroke={c} strokeWidth="1.4" strokeLinecap="round"/></svg>,
@@ -2028,10 +2028,22 @@ function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate}) {
           ))}
         </div>
         <div style={{flex:1}}/>
-        <div style={{padding:"18px 22px",borderTop:"1px solid "+T.divider}}>
-          <div style={{fontSize:12,color:T.muted,fontStyle:"italic",lineHeight:1.6}}>All your history lives in Journal.</div>
+        <div style={{padding:"16px 14px 28px",borderTop:"1px solid "+T.divider}}>
+          {profile&&(
+            <div style={{fontSize:12,color:T.sub,marginBottom:12,padding:"0 6px"}}>
+              Signed in as <span style={{fontWeight:600,color:T.text}}>{profile.name||profile.email||"you"}</span>
+            </div>
+          )}
+          <button
+            onClick={()=>{onClose();setTimeout(signOut,200);}}
+            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid "+T.border,background:"none",cursor:"pointer",textAlign:"left",WebkitTapHighlightColor:"transparent"}}>
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+              <path d="M7 3H4a1 1 0 00-1 1v12a1 1 0 001 1h3" stroke={T.sub} strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M13 14l3-4-3-4M16 10H8" stroke={T.sub} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{fontSize:14,color:T.sub,fontWeight:500}}>Sign out</span>
+          </button>
         </div>
-        <div style={{height:20}}/>
       </div>
     </>
   );
@@ -2724,7 +2736,7 @@ export default function App() {
           {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]} chatDates={chatDates} initialDate={journalInitialDate} userId={session?.user?.id}/>}
         </Sheet>
 
-        <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet} chatDates={chatDates} onViewDate={openHistoryDate}/>
+        <NavDrawer T={T} open={navOpen} onClose={()=>setNavOpen(false)} onOpen={openSheet} chatDates={chatDates} onViewDate={openHistoryDate} profile={profile} signOut={signOut}/>
       </div>
     </>
   );
