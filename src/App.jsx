@@ -2453,14 +2453,6 @@ export default function App() {
 
         {/* ── PERSISTENT CHAT BAR — always visible, above all sheets ── */}
         <div ref={chatBarRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,borderTop:"1px solid "+T.divider,padding:"10px 20px 28px",background:T.bg,transition:"background 0.4s"}}>
-          {/* Quick access chips */}
-          <div style={{display:"flex",gap:8,marginBottom:10,overflowX:"auto",scrollbarWidth:"none"}}>
-            {CHIPS.map(chip=>(
-              <button key={chip.label} onClick={chip.action} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:"1px solid "+T.border,background:T.card,color:T.sub,fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.15s"}}>
-                {chip.label}
-              </button>
-            ))}
-          </div>
           <div style={{background:T.card,borderRadius:24,padding:"10px 12px 10px 18px",border:"1px solid "+T.border,display:"flex",alignItems:"center",gap:8}}>
             <textarea
               ref={chatBarInputRef}
