@@ -1088,8 +1088,6 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
   const [dueDate,setDueDate]=useState("");
   const [subtasks,setSubtasks]=useState([]);
   const [newSubText,setNewSubText]=useState("");
-  const [newSubMins,setNewSubMins]=useState("15m");
-  const [newSubDue,setNewSubDue]=useState("");
   const [notes,setNotes]=useState("");
   const [startTime,setStartTime]=useState("");
   const [timerActive,setTimerActive]=useState(false);
@@ -1105,7 +1103,7 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
   const onDS=e=>{ dragY.current=e.touches[0].clientY;if(sheetRef.current)sheetRef.current.style.transition="none"; };
   const onDM=e=>{ if(!dragY.current)return;const dy=e.touches[0].clientY-dragY.current;if(dy>0&&sheetRef.current)sheetRef.current.style.transform="translateY("+dy+"px)"; };
   const onDE=e=>{ const dy=e.changedTouches[0].clientY-(dragY.current||0);if(sheetRef.current)sheetRef.current.style.transition="";if(dy>80)handleClose();else if(sheetRef.current)sheetRef.current.style.transform="";dragY.current=null; };
-  const addSub=()=>{ if(!newSubText.trim())return;setSubtasks(p=>[...p,{text:newSubText.trim(),done:false,mins:newSubMins,dueDate:newSubDue}]);setNewSubText("");setNewSubMins("15m");setNewSubDue(""); };
+  const addSub=()=>{ if(!newSubText.trim())return;setSubtasks(p=>[...p,{text:newSubText.trim(),done:false}]);setNewSubText(""); };
   const sel={padding:"9px 10px",borderRadius:10,border:"1px solid "+T.border,background:T.card,color:T.sub,fontSize:13,fontFamily:"inherit",outline:"none",cursor:"pointer",width:"100%",height:"40px",boxSizing:"border-box"};
 
   if(!open&&!visible) return null;
@@ -1175,21 +1173,16 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
             <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:12}}>Steps <span style={{fontWeight:400,color:T.sub,opacity:0.6}}>(optional)</span></div>
             {subtasks.map((sub,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid "+T.divider}}>
-                <button onClick={()=>setSubtasks(p=>p.map((s,j)=>j===i?{...s,done:!s.done}:s))} style={{width:20,height:20,borderRadius:"50%",border:sub.done?"none":"1.5px solid "+T.sub,background:sub.done?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
+                <button onClick={()=>setSubtasks(p=>p.map((s,j)=>j===i?{...s,done:!s.done}:s))} style={{width:20,height:20,borderRadius:"50%",border:"1.5px solid "+(sub.done?T.accent:T.sub),background:sub.done?T.accent:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s"}}>
                   {sub.done&&<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                 </button>
                 <span style={{flex:1,fontSize:14,color:sub.done?T.sub:T.text,textDecoration:sub.done?"line-through":"none"}}>{sub.text}</span>
-                <span style={{fontSize:11,color:T.muted}}>{sub.mins}</span>
-                <button onClick={()=>setSubtasks(p=>p.filter((_,j)=>j!==i))} style={{color:T.sub,background:"none",border:"none",fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+                <button onClick={()=>setSubtasks(p=>p.filter((_,j)=>j!==i))} style={{color:T.muted,background:"none",border:"none",fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1,flexShrink:0}}>×</button>
               </div>
             ))}
-            <div style={{background:T.surface,borderRadius:10,padding:"10px 12px",border:"1px dashed "+T.border}}>
-              <input value={newSubText} onChange={e=>setNewSubText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSub()} placeholder="Add a step..." style={{width:"100%",border:"none",background:"transparent",color:T.text,fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:8}}/>
-              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-                <select value={newSubMins} onChange={e=>setNewSubMins(e.target.value)} style={{...sel,flex:1,fontSize:12}}>{SUB_MINS.map(m=><option key={m}>{m}</option>)}</select>
-                <input type="date" value={newSubDue} onChange={e=>setNewSubDue(e.target.value)} style={{...sel,flex:1,fontSize:12}}/>
-                <button onClick={addSub} disabled={!newSubText.trim()} style={{padding:"9px 14px",borderRadius:10,border:"none",background:newSubText.trim()?T.accent:T.card,color:newSubText.trim()?T.accentText:T.muted,fontSize:13,fontWeight:700,cursor:newSubText.trim()?"pointer":"default",fontFamily:"inherit",alignSelf:"flex-end"}}>Add</button>
-              </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",paddingTop:subtasks.length?10:0}}>
+              <input value={newSubText} onChange={e=>setNewSubText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSub()} placeholder="Add a step…" style={{flex:1,border:"none",borderBottom:"1px solid "+T.divider,background:"transparent",color:T.text,fontSize:14,fontFamily:"inherit",outline:"none",padding:"6px 0"}}/>
+              <button onClick={addSub} disabled={!newSubText.trim()} style={{padding:"7px 14px",borderRadius:10,border:"none",background:newSubText.trim()?T.accent:T.surface,color:newSubText.trim()?T.accentText:T.muted,fontSize:13,fontWeight:600,cursor:newSubText.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0,transition:"background 0.15s"}}>Add</button>
             </div>
           </div>
           <div style={{background:T.card,borderRadius:14,padding:"14px 16px",border:"1px solid "+T.border}}>
