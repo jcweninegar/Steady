@@ -1252,11 +1252,12 @@ function TaskCard({T, task, badge, onCheck, onClick, onRemove, draggable:isDrag,
 }
 
 function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
-  const PX_HR=80, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=3;
+  const PX_HR=96, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=3;
   const TOTAL_PX=(END_H-START_H)*PX_HR;
   const scrollRef=useRef(null);
   const gestureRef=useRef(null);
   const sheetBlockRef=useRef(null);
+  const longPressRef=useRef(null);
   const [gesture,setGesture]=useState(null);
   const [expandedId,setExpandedId]=useState(null);  // block id or null
   const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
@@ -1356,6 +1357,30 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     setGesture("drag-"+block.id);
   };
 
+  // Long-press (400ms) to activate drag on touch; tap falls through to chevron
+  const onBlockTouchStart=(e,block)=>{
+    if(gesture) return;
+    const startY=e.touches[0].clientY;
+    const others=ALL_BLOCKS.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
+    longPressRef.current={
+      blockId:block.id, startY,
+      timer:setTimeout(()=>{
+        if(navigator.vibrate) navigator.vibrate(35);
+        gestureRef.current={type:"drag",y:startY,id:block.id,defaultStart:block.h*60+block.m,origOff:blockOffsets[block.id]||0,myDur:block.dur,moved:true,others};
+        setGesture("drag-"+block.id);
+        longPressRef.current=null;
+      },400),
+    };
+  };
+  const onBlockTouchMove=(e)=>{
+    if(!longPressRef.current) return;
+    if(Math.abs(e.touches[0].clientY-longPressRef.current.startY)>8){
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current=null;
+    }
+  };
+  const onBlockTouchEnd=()=>{ if(longPressRef.current){ clearTimeout(longPressRef.current.timer); longPressRef.current=null; } };
+
   const reorderCards=(blockId,from,to)=>{
     if(from===to)return;
     if(blockId==="workblock") setWorkTasks(p=>{const a=[...p];const[i]=a.splice(from,1);a.splice(to,0,i);return a;});
@@ -1433,12 +1458,14 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 zIndex:isDragging?30:1,
                 transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
               }}>
-                {/* Header — left is drag zone, right is expand chevron */}
-                <div style={{display:"flex",alignItems:"center",height:blockH-20}}>
+                {/* Header — long-press body to drag, tap chevron to expand */}
+                <div style={{display:"flex",alignItems:"center",height:blockH-28}}>
                   <div
                     onMouseDown={e=>startDrag(e,block)}
-                    onTouchStart={e=>startDrag(e,block)}
-                    style={{flex:1,padding:"0 6px 0 12px",cursor:"grab",touchAction:"none",minWidth:0}}>
+                    onTouchStart={e=>onBlockTouchStart(e,block)}
+                    onTouchMove={e=>onBlockTouchMove(e)}
+                    onTouchEnd={()=>onBlockTouchEnd()}
+                    style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:gesture==="drag-"+block.id?"none":"pan-y",minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
                       {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
@@ -1455,8 +1482,8 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 <div
                   onMouseDown={e=>startResize(e,block)}
                   onTouchStart={e=>startResize(e,block)}
-                  style={{position:"absolute",bottom:0,left:0,right:0,height:20,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"14)",touchAction:"none"}}>
-                  <div style={{width:24,height:3,background:T.accent+(isResizing?"aa":"44"),borderRadius:2,transition:"background 0.15s"}}/>
+                  style={{position:"absolute",bottom:0,left:0,right:0,height:28,cursor:"ns-resize",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(transparent,"+T.accent+"18)",touchAction:"none"}}>
+                  <div style={{width:32,height:3,background:T.accent+(isResizing?"cc":"55"),borderRadius:2,transition:"background 0.15s"}}/>
                 </div>
               </div>
             );
