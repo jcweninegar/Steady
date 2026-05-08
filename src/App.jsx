@@ -1702,6 +1702,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [planView,setPlanView]=useState("today");
   const [workTasks,setWorkTasks]=useState([]);
   const [top10Candidates,setTop10Candidates]=useState([]);
+  const top3Key="steady_top3_"+new Date().toISOString().split("T")[0];
   const [planObservation,setPlanObservation]=useState(null);
   const [planQuestion,setPlanQuestion]=useState(null);
   const [candidatesLoading,setCandidatesLoading]=useState(false);
@@ -1779,6 +1780,22 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   };
 
   useEffect(()=>{ if(tasks.filter(t=>!t.done).length>0&&top10Candidates.length===0) loadCandidates(); },[]);
+
+  // Load today's Top 3 from localStorage on mount
+  useEffect(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem(top3Key)||"[]");
+      if(saved.length){
+        const loaded=saved.map(id=>tasks.find(t=>String(t.id)===String(id)&&!t.done)).filter(Boolean);
+        if(loaded.length) setWorkTasks(loaded);
+      }
+    }catch{}
+  },[]);
+
+  // Persist Top 3 task IDs whenever selection changes
+  useEffect(()=>{
+    try{ localStorage.setItem(top3Key,JSON.stringify(workTasks.map(t=>t.id))); }catch{}
+  },[workTasks]);
 
   const allTasksFiltered=useMemo(()=>{
     let list=tasks.filter(t=>!t.done);
@@ -2696,13 +2713,15 @@ export default function App() {
   const closeSheet=()=>{ setActiveSheet(null);setChatPrompt(null);setChatInitialText(""); };
 
   const submitChatBar=()=>{
-    const text=chatBarInput.trim();
+    // Also read DOM value directly — iOS native dictation bypasses React onChange
+    const domVal=chatBarInputRef.current?.value||"";
+    const text=(chatBarInput||domVal).trim();
     if(!text) { openSheet("chat",null,""); return; }
     // Stop mic if running
     if(isListening){ recognitionRef.current?.stop(); setIsListening(false); }
-    // Clear input
+    // Clear both React state and DOM value (iOS dictation only updates DOM)
     setChatBarInput("");
-    if(chatBarInputRef.current){ chatBarInputRef.current.style.height="auto"; }
+    if(chatBarInputRef.current){ chatBarInputRef.current.value=""; chatBarInputRef.current.style.height="auto"; }
     if(activeSheet==="chat" && chatContentRef.current) {
       chatContentRef.current.sendMessage(text);
     } else {
@@ -2773,6 +2792,7 @@ export default function App() {
               ref={chatBarInputRef}
               value={chatBarInput}
               onChange={e=>{ setChatBarInput(e.target.value); e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,140)+"px"; }}
+              onInput={e=>{ setChatBarInput(e.target.value); e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,140)+"px"; }}
               onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submitChatBar(); } }}
               placeholder="What's on your mind..."
               rows={1}
