@@ -53,6 +53,46 @@ async function main() {
       ON journal_entries (user_id, date);
   `, "journal_entries: unique index on (user_id, date)");
 
+  // tasks: add client-side sync columns
+  await runSQL(`
+    ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS client_id   text,
+      ADD COLUMN IF NOT EXISTS label       text,
+      ADD COLUMN IF NOT EXISTS area        text         DEFAULT 'work',
+      ADD COLUMN IF NOT EXISTS urgency     text         DEFAULT 'soon',
+      ADD COLUMN IF NOT EXISTS due_date    text,
+      ADD COLUMN IF NOT EXISTS hours       text         DEFAULT '0h',
+      ADD COLUMN IF NOT EXISTS mins        text         DEFAULT '30m',
+      ADD COLUMN IF NOT EXISTS description text,
+      ADD COLUMN IF NOT EXISTS steps       jsonb        DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS subtasks    jsonb        DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS notes       text,
+      ADD COLUMN IF NOT EXISTS done        boolean      DEFAULT false,
+      ADD COLUMN IF NOT EXISTS updated_at  timestamptz  DEFAULT now();
+  `, "tasks: add sync columns");
+
+  await runSQL(`
+    CREATE UNIQUE INDEX IF NOT EXISTS tasks_user_client_idx
+      ON tasks (user_id, client_id)
+      WHERE client_id IS NOT NULL;
+  `, "tasks: unique index (user_id, client_id)");
+
+  // life_areas: add sync columns
+  await runSQL(`
+    ALTER TABLE life_areas
+      ADD COLUMN IF NOT EXISTS area_key   text,
+      ADD COLUMN IF NOT EXISTS baseline   text,
+      ADD COLUMN IF NOT EXISTS status     text,
+      ADD COLUMN IF NOT EXISTS goals      jsonb        DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS updated_at timestamptz  DEFAULT now();
+  `, "life_areas: add sync columns");
+
+  await runSQL(`
+    CREATE UNIQUE INDEX IF NOT EXISTS life_areas_user_key_idx
+      ON life_areas (user_id, area_key)
+      WHERE area_key IS NOT NULL;
+  `, "life_areas: unique index (user_id, area_key)");
+
   console.log("\nAll migrations complete.");
 }
 

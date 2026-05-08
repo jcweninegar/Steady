@@ -80,6 +80,13 @@ Auto-creates a profile row on new user signup via trigger.
 - Working through PRD section by section, saving checkpoints between sections
 - Architecture naming: **Card** = task, **Block** = expandable container of cards
 
+## Data persistence
+- **Tasks**: localStorage (instant) + Supabase `tasks` table (debounced 1.5s). On first login, any existing localStorage tasks are pushed up. On subsequent logins from a new device, Supabase is the source of truth. Sync key: `(user_id, client_id)` where `client_id = String(Date.now())`.
+- **Captures**: localStorage only (`steady_captures`).
+- **Life Map**: localStorage (`steady_lifemap`) on every `areas` state change + Supabase `life_areas` upsert on sheet close. Loads from Supabase on mount when userId is available.
+- **Journal entries**: localStorage (`steady_entry_YYYY-MM-DD`) + Supabase `journal_entries` upsert (triggered on narrative generate, rating set, notes save).
+- **Chat history**: localStorage only (`steady_chat_YYYY-MM-DD`).
+
 ## Gotchas
 - `allowedHosts: true` in vite.config.js required for Replit iframe proxying
 - VITE_ prefix required for env vars accessible in frontend code

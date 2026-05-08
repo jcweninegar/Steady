@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo, useCallback } from "react";
 import { useAuth } from "./lib/AuthContext";
 import AuthScreen from "./screens/AuthScreen";
 import { supabase } from "./lib/supabase";
@@ -656,13 +656,19 @@ const MOCK_CAPTURES = [
 
 
 
-function LifeMapContent({T}) {
+function LifeMapContent({T, userId}) {
   const STATUS_OPTS = ["Yes","Getting there","Not yet","Had it, lost it"];
 
-
-
-
-  const [areas, setAreas]           = useState(AREAS.map(a=>({...a,baseline:"",status:null,goals:[]})));
+  const [areas, setAreas] = useState(()=>{
+    try {
+      const s = localStorage.getItem("steady_lifemap");
+      const saved = s ? JSON.parse(s) : null;
+      if(saved && Array.isArray(saved)) {
+        return AREAS.map(a => ({ ...a, ...(saved.find(x=>x.id===a.id)||{}), label:a.label, research:a.research }));
+      }
+    } catch {}
+    return AREAS.map(a=>({...a,baseline:"",status:null,goals:[]}));
+  });
   const [showResearch, setShowResearch] = useState(false);
   const [activeSheet, setActiveSheet]   = useState(null);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -685,12 +691,10 @@ function LifeMapContent({T}) {
   };
 
   const closeArea = () => {
-    // auto-save on close
     if(activeSheet) {
-      setAreas(prev=>prev.map(a=>a.id===activeSheet.id
-        ? {...a, baseline:editBaseline, status:editStatus, goals:editGoals}
-        : a
-      ));
+      const updated = {...activeSheet, baseline:editBaseline, status:editStatus, goals:editGoals};
+      setAreas(prev=>prev.map(a=>a.id===activeSheet.id ? updated : a));
+      syncArea(updated);
     }
     setSheetVisible(false);
     setTimeout(()=>setActiveSheet(null),320);
@@ -705,6 +709,36 @@ function LifeMapContent({T}) {
     setEditGoals(p=>[...p,{text:newGoal.trim(),done:false}]);
     setNewGoal("");
   };
+
+  // Persist to localStorage whenever areas change
+  useEffect(()=>{
+    try { localStorage.setItem("steady_lifemap", JSON.stringify(areas)); } catch {}
+  }, [areas]);
+
+  // Load from Supabase on mount (after localStorage baseline is set)
+  useEffect(()=>{
+    if(!userId || userId==="dev") return;
+    supabase.from("life_areas").select("*").eq("user_id", userId)
+      .then(({data, error})=>{
+        if(error || !data || data.length===0) return;
+        setAreas(prev => prev.map(a => {
+          const row = data.find(r => r.area_key === a.id);
+          if(!row) return a;
+          return { ...a, baseline: row.baseline||"", status: row.status||null, goals: row.goals||[] };
+        }));
+      });
+  }, [userId]);
+
+  const syncArea = useCallback(async (area) => {
+    if(!userId || userId==="dev") return;
+    const row = {
+      user_id: userId, area_key: area.id,
+      baseline: area.baseline||"", status: area.status||null,
+      goals: area.goals||[], updated_at: new Date().toISOString(),
+    };
+    const {error} = await supabase.from("life_areas").upsert(row, {onConflict:"user_id,area_key"});
+    if(error) console.error("life_areas sync:", error.message);
+  }, [userId]);
 
   return (
     <div style={{padding:"16px 20px 40px"}}>
@@ -2258,6 +2292,73 @@ export default function App() {
 
   useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
   useEffect(()=>{ try{ localStorage.setItem("steady_captures",JSON.stringify(captures)); }catch{} },[captures]);
+
+  // ── Supabase task sync ────────────────────────────────────────────────────
+  const syncTimerRef = useRef(null);
+  const syncTasksToSupabase = useCallback((taskList, uid) => {
+    if(!uid || uid==="dev") return;
+    const rows = taskList.map(t=>({
+      user_id: uid,
+      client_id: String(t.id),
+      label: t.label||"",
+      area: t.area||"work",
+      urgency: t.urgency||"soon",
+      due_date: t.dueDate||null,
+      hours: t.hours||"0h",
+      mins: t.mins||"30m",
+      description: t.desc||"",
+      steps: t.steps||[],
+      subtasks: t.subtasks||[],
+      notes: t.notes||"",
+      done: t.done||false,
+      updated_at: new Date().toISOString(),
+    }));
+    if(!rows.length) return;
+    supabase.from("tasks").upsert(rows,{onConflict:"user_id,client_id"})
+      .then(({error})=>{ if(error) console.error("tasks sync:",error.message); });
+  },[]);
+
+  // Load tasks from Supabase on first login (merge with or replace localStorage)
+  useEffect(()=>{
+    if(!session?.user?.id || devBypass) return;
+    const uid = session.user.id;
+    supabase.from("tasks").select("*").eq("user_id",uid)
+      .then(({data,error})=>{
+        if(error) return;
+        if(!data || data.length===0) {
+          // First device — push any existing localStorage tasks up
+          const local=(()=>{ try{ const s=localStorage.getItem("steady_tasks"); return s?JSON.parse(s):[]; }catch{return[];} })();
+          if(local.length>0) syncTasksToSupabase(local, uid);
+          return;
+        }
+        const dbTasks = data
+          .filter(r=>r.client_id)
+          .map(r=>({
+            id: parseInt(r.client_id)||r.client_id,
+            label: r.label||"",
+            area: r.area||"work",
+            urgency: r.urgency||"soon",
+            dueDate: r.due_date||"",
+            hours: r.hours||"0h",
+            mins: r.mins||"30m",
+            desc: r.description||"",
+            steps: r.steps||[],
+            subtasks: r.subtasks||[],
+            notes: r.notes||"",
+            done: r.done||false,
+          }));
+        if(dbTasks.length>0) setTasks(dbTasks);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[session?.user?.id]);
+
+  // Debounced push: sync to Supabase 1.5s after any task change
+  useEffect(()=>{
+    if(!session?.user?.id || devBypass) return;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(()=>syncTasksToSupabase(tasks, session.user.id), 1500);
+    return ()=>clearTimeout(syncTimerRef.current);
+  },[tasks, session?.user?.id]);
   const toggleVoice=()=>{
     if(isListening){
       recognitionRef.current?.stop();
@@ -2418,7 +2519,7 @@ export default function App() {
           {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id} onGetUnstuck={(task)=>{ closeSheet(); setTimeout(()=>openSheet("chat",null,`I'm feeling stuck on "${task?.label||"a task"}". Help me break this down and figure out my next step.`),320); }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
-          {activeSheet==="lifemap"&&<LifeMapContent T={T}/>}
+          {activeSheet==="lifemap"&&<LifeMapContent T={T} userId={session?.user?.id}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="journal"} onClose={closeSheet} chatBarRef={chatBarRef} title="Journal">
           {activeSheet==="journal"&&<JournalScreen T={T} captures={captures} tasks={tasks} chatMessages={todayChatMessages||[]} chatDates={chatDates} initialDate={journalInitialDate} userId={session?.user?.id}/>}
