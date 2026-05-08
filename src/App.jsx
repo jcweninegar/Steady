@@ -85,7 +85,7 @@ function Sheet({T, open, onClose, chatBarRef, children, title, overflow="auto"})
       <div onClick={handleClose} style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,0.18)",backdropFilter:"blur(2px)",transition:"opacity 0.3s",opacity:visible?1:0}}/>
       <div ref={sheetRef} style={{position:"fixed",left:0,right:0,top:88,bottom:sheetBottom,zIndex:201,background:T.frost,backdropFilter:"blur(40px) saturate(1.6)",WebkitBackdropFilter:"blur(40px) saturate(1.6)",borderRadius:"22px 22px 0 0",display:"flex",flexDirection:"column",transition:"transform 0.32s cubic-bezier(0.32,0.72,0,1)",transform:visible?"translateY(0)":"translateY(100%)",boxShadow:"0 -6px 48px rgba(0,0,0,0.16)",border:`1px solid ${T.border}`,borderBottom:"none"}}>
         {/* Handle row */}
-        <div onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd} style={{flexShrink:0,height:48,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",touchAction:"none",borderBottom:`1px solid ${T.divider}`}}>
+        <div onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd} style={{flexShrink:0,height:48,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",touchAction:"none",borderBottom:`1px solid ${T.divider}`,position:"relative",zIndex:350}}>
           <button onClick={handleClose} style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"flex-start",background:"none",border:"none",padding:0}}>
             <XIcon c={T.muted}/>
           </button>
@@ -1565,7 +1565,11 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                       </div>
                     )}
                   </div>
-                  <div data-no-drag onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
+                  <div
+                    data-no-drag
+                    onTouchEnd={e=>{e.stopPropagation();isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id));}}
+                    onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))}
+                    style={{alignSelf:"stretch",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 12px",cursor:"pointer",flexShrink:0,minWidth:44}}>
                     {isEditing
                       ? <span style={{fontSize:11,fontWeight:700,color:T.accent,letterSpacing:0.2}}>Done</span>
                       : CHEVRON(T.sub,isOpen)}
