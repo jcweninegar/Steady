@@ -2458,7 +2458,7 @@ function OnboardingScreen({T, onComplete}) {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { session, profile, loading, devBypass, setDevBypass, updateProfile } = useAuth();
+  const { session, profile, loading, devBypass, setDevBypass, updateProfile, signOut } = useAuth();
   const [dark,setDark]=useState(false);
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
