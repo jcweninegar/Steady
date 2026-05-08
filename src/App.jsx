@@ -1261,8 +1261,8 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const [gesture,setGesture]=useState(null);
   const [expandedId,setExpandedId]=useState(null);  // block id or null
   const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
-  const [blockOffsets,setBlockOffsets]=useState({morning:0,startup:0,workblock:0,shutdown:0,evening:0});
-  const [blockDurs,setBlockDurs]=useState({});
+  const [blockOffsets,setBlockOffsets]=useState(()=>{try{const s=localStorage.getItem("steady_cal_offsets");return s?JSON.parse(s):{morning:0,startup:0,workblock:0,shutdown:0,evening:0};}catch{return {morning:0,startup:0,workblock:0,shutdown:0,evening:0};}});
+  const [blockDurs,setBlockDurs]=useState(()=>{try{const s=localStorage.getItem("steady_cal_durs");return s?JSON.parse(s):{};}catch{return {};}});
   const [stepOrders,setStepOrders]=useState(()=>Object.fromEntries(CAL_ROUTINE_DEFS.map(rb=>[rb.id,rb.steps.map(s=>s.id)])));
   const [cardDrag,setCardDrag]=useState(null);
 
@@ -1299,6 +1299,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
     return ()=>clearTimeout(t);
   },[]);
+
+  useEffect(()=>{ try{localStorage.setItem("steady_cal_offsets",JSON.stringify(blockOffsets));}catch{} },[blockOffsets]);
+  useEffect(()=>{ try{localStorage.setItem("steady_cal_durs",JSON.stringify(blockDurs));}catch{} },[blockDurs]);
 
   useEffect(()=>{
     if(!gesture)return;
@@ -1565,7 +1568,8 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [candidatesLoading,setCandidatesLoading]=useState(false);
   const [showAllTasks,setShowAllTasks]=useState(false);
   const [allTasksFilter,setAllTasksFilter]=useState("all");
-  const [workBlockMins]=useState(90);
+  const [workBlockMins,_setWorkBlockMins]=useState(()=>{try{const v=localStorage.getItem("steady_cal_workblock");return v?Number(v):90;}catch{return 90;}});
+  const setWorkBlockMins=(v)=>{_setWorkBlockMins(v);try{localStorage.setItem("steady_cal_workblock",String(v));}catch{}};
   const [routineDone,setRoutineDone]=useState({});
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
@@ -1802,7 +1806,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
             </div>
           </>
         ):(
-          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={()=>{}} markDone={markDone}/>
+          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}} onGetUnstuck={onGetUnstuck}/>
