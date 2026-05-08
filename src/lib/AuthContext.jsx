@@ -12,26 +12,53 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchProfile(session.user.id);
+      if (session) fetchProfile(session.user);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchProfile(session.user.id);
+      if (session) fetchProfile(session.user);
       else setProfile(null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchProfile(userId) {
-    const { data } = await supabase
+  async function fetchProfile(user) {
+    const { data, error } = await supabase
       .from("profiles")
       .select("*")
+      .eq("id", user.id)
+      .single();
+
+    if (data) {
+      setProfile(data);
+    } else {
+      // First sign-in — create profile row
+      const { data: created } = await supabase
+        .from("profiles")
+        .upsert(
+          { id: user.id, email: user.email, onboarding_complete: false },
+          { onConflict: "id" }
+        )
+        .select()
+        .single();
+      if (created) setProfile(created);
+    }
+  }
+
+  async function updateProfile(updates) {
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(updates)
       .eq("id", userId)
+      .select()
       .single();
     if (data) setProfile(data);
+    return { data, error };
   }
 
   async function signInWithGoogle() {
@@ -58,7 +85,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, devBypass, setDevBypass, signInWithGoogle, signInWithMagicLink, signOut }}>
+    <AuthContext.Provider value={{ session, profile, loading, devBypass, setDevBypass, signInWithGoogle, signInWithMagicLink, signOut, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

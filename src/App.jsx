@@ -2432,7 +2432,7 @@ function OnboardingScreen({T, onComplete}) {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { session, loading, devBypass, setDevBypass } = useAuth();
+  const { session, profile, loading, devBypass, setDevBypass, updateProfile } = useAuth();
   const [dark,setDark]=useState(false);
   const [navOpen,setNavOpen]=useState(false);
   const [activeSheet,setActiveSheet]=useState(null);
@@ -2459,7 +2459,20 @@ export default function App() {
   const recognitionRef=useRef(null);
   const [isListening,setIsListening]=useState(false);
   const [onboarded,setOnboarded]=useState(()=>{ try{return !!localStorage.getItem("steady_onboarded");}catch{return true;} });
+  const [nameInput,setNameInput]=useState("");
+  const [nameSaving,setNameSaving]=useState(false);
   const T=dark?DARK:LIGHT;
+
+  const greeting=()=>{const h=new Date().getHours();return h<12?"Good morning":h<17?"Good afternoon":"Good evening";};
+  const showNamePrompt=!devBypass&&session&&profile&&!profile.name;
+
+  const saveName=async()=>{
+    const n=nameInput.trim();
+    if(!n)return;
+    setNameSaving(true);
+    await updateProfile({name:n});
+    setNameSaving(false);
+  };
 
   useEffect(()=>{ try{ localStorage.setItem("steady_tasks",JSON.stringify(tasks)); }catch{} },[tasks]);
   useEffect(()=>{ try{ localStorage.setItem("steady_captures",JSON.stringify(captures)); }catch{} },[captures]);
@@ -2613,9 +2626,32 @@ export default function App() {
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 36px 100px",overflow:"hidden",transition:"all 0.3s"}}>
           {isListening?(
             <VoiceVisual T={T} text={chatBarInput}/>
+          ):showNamePrompt?(
+            /* ── Name prompt ── */
+            <div style={{textAlign:"center",maxWidth:300,width:"100%"}}>
+              <div style={{fontSize:32,marginBottom:16}}>👋</div>
+              <div style={{fontSize:22,fontWeight:600,color:T.text,fontFamily:"'Lora',serif",marginBottom:8}}>What should I call you?</div>
+              <div style={{fontSize:14,color:T.sub,marginBottom:28,lineHeight:1.5}}>Just your first name is perfect.</div>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Your name…"
+                value={nameInput}
+                onChange={e=>setNameInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")saveName();}}
+                style={{width:"100%",padding:"14px 16px",borderRadius:14,border:"1.5px solid "+T.border,background:T.card,color:T.text,fontSize:16,fontFamily:"'DM Sans',sans-serif",outline:"none",textAlign:"center",marginBottom:12,boxSizing:"border-box"}}
+              />
+              <button
+                onClick={saveName}
+                disabled={!nameInput.trim()||nameSaving}
+                style={{width:"100%",padding:"14px",borderRadius:14,border:"none",background:T.accent,color:T.accentText,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",opacity:(!nameInput.trim()||nameSaving)?0.5:1,transition:"opacity 0.15s"}}>
+                {nameSaving?"Saving…":"Let's go →"}
+              </button>
+            </div>
           ):(
             <div style={{textAlign:"center",marginBottom:48}}>
               <div style={{fontSize:13,color:T.muted,marginBottom:20,letterSpacing:"0.2px"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
+              {profile?.name&&<div style={{fontSize:15,color:T.sub,marginBottom:8,fontWeight:500}}>{greeting()}, {profile.name}.</div>}
               <div style={{fontSize:38,fontWeight:500,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-1px",lineHeight:1.15,marginBottom:14}}>What's on<br/>your mind?</div>
               <div style={{fontSize:14,color:T.muted,fontStyle:"italic"}}>Just get it out. I'll handle the rest.</div>
             </div>
