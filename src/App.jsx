@@ -1620,8 +1620,8 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
 
   return (
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 40px"}}>
-      {/* Header */}
-      <div style={{padding:"16px 20px 0",background:T.bg}}>
+      {/* Header — sticky so it doesn't scroll away with the calendar */}
+      <div style={{padding:"16px 20px 0",background:T.bg,position:"sticky",top:0,zIndex:10}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
