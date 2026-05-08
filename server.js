@@ -69,15 +69,40 @@ async function callModel(model, system, messages, max_tokens) {
   return data.content?.[0]?.text || "";
 }
 
-// Haiku — fast & cheap, used for all conversational + structured endpoints
+// Haiku — fast & cheap, used for all endpoints
 const callAnthropic = (system, messages, max_tokens = 700) =>
-  callModel("claude-3-5-haiku-20241022", system, messages, max_tokens);
+  callModel("claude-haiku-4-5", system, messages, max_tokens);
 
-// Sonnet — higher quality, reserved for journal prose generation only
-const callSonnet = (system, messages, max_tokens = 500) =>
-  callModel("claude-sonnet-4-6", system, messages, max_tokens);
+// Cached call — splits system into a cacheable knowledge block + dynamic block.
+// Requires anthropic-beta: prompt-caching-2024-07-31. Reduces repeat-read cost ~90%.
+async function callCached(knowledgePart, dynamicPart, messages, max_tokens = 700) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5",
+      max_tokens,
+      system: [
+        { type: "text", text: knowledgePart, cache_control: { type: "ephemeral" } },
+        { type: "text", text: dynamicPart },
+      ],
+      messages,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic error ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  return data.content?.[0]?.text || "";
+}
 
-// Compact ADHD context sent in chat calls instead of the full knowledge base (~9k tokens → ~80 tokens)
+// Compact ADHD brief used in endpoints that don't warrant the full knowledge base
 const ADHD_BRIEF = `ADHD core: Executive dysfunction, working memory deficits, time blindness, and emotional dysregulation are neurological — not character flaws. ADHD brains run on Dodson's motivators: Interest, Challenge, Urgency, Novelty, Meaning. Shame spirals are counterproductive. Task initiation is harder than completion. One small next step beats a perfect plan.`;
 
 // ── Brain dump extraction ────────────────────────────────────────────────────
@@ -259,9 +284,8 @@ app.post("/api/braindump-chat", async (req, res) => {
     .map(c => `"${c.text || c.label || ""}"`)
     .join(", ");
 
-  const system = `You are steady., a calm ADHD support companion and second brain.
+  const dynamicSystem = `You are steady., a calm ADHD support companion and second brain.
 Today: ${todayFull} (${today})
-${ADHD_BRIEF}
 ${historyBlock}
 
 The user's current tasks:
@@ -283,7 +307,7 @@ Your role: help the user through natural conversation. Use your knowledge of ADH
       content: m.content || m.text || "",
     })).filter(m => m.content.trim());
 
-    const rawReply = await callAnthropic(system, formatted, 400);
+    const rawReply = await callCached(knowledgeBase, dynamicSystem, formatted, 400);
 
     const taskMatch = rawReply.match(/<tasks>([\s\S]*?)<\/tasks>/);
     let updatedTasks = null;
@@ -308,9 +332,8 @@ app.post("/api/chat", async (req, res) => {
 
   const today = new Date().toLocaleDateString("en-CA");
   const todayFull = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
-  const system = `You are steady., a second brain and ADHD support companion.
+  const dynamicSystem = `You are steady., a second brain and ADHD support companion.
 Today: ${todayFull} (${today})
-${ADHD_BRIEF}
 
 Your role: help adults with ADHD capture thoughts, manage tasks, and build a life that works. Be calm, warm, and direct — never clinical or preachy. Keep responses concise — ADHD brains don't need walls of text. When someone seems overwhelmed, offer one small next step. When someone expresses shame, gently anchor to neuroscience.
 
@@ -320,7 +343,7 @@ Tone: calm, smart friend who gets it. Not a therapist. Not a productivity guru. 
     const formatted = messages
       .filter(m => m.role === "user" || m.role === "ai")
       .map(m => ({ role: m.role === "ai" ? "assistant" : "user", content: m.text }));
-    const reply = await callAnthropic(system, formatted, 350);
+    const reply = await callCached(knowledgeBase, dynamicSystem, formatted, 350);
     res.json({ reply });
   } catch (e) {
     console.error("Chat error:", e.message);
@@ -351,7 +374,7 @@ Rules:
   const prompt = `Write my journal entry for today.\n\nThings on my mind today:\n- ${captureText}\n\nWhat I got done: ${taskText}\nHow the day felt: ${rating || "not rated"}`;
 
   try {
-    const narrative = await callSonnet(system, [{ role: "user", content: prompt }], 500);
+    const narrative = await callAnthropic(system, [{ role: "user", content: prompt }], 500);
     res.json({ narrative });
   } catch (e) {
     console.error("Journal error:", e.message);

@@ -1703,6 +1703,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [workTasks,setWorkTasks]=useState([]);
   const [top10Candidates,setTop10Candidates]=useState([]);
   const top3Key="steady_top3_"+new Date().toLocaleDateString("en-CA");
+  const planCacheKey="steady_plan_"+new Date().toLocaleDateString("en-CA");
   const [planObservation,setPlanObservation]=useState(null);
   const [planQuestion,setPlanQuestion]=useState(null);
   const [candidatesLoading,setCandidatesLoading]=useState(false);
@@ -1776,10 +1777,28 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
       setTop10Candidates(cands);
       if(data.observation) setPlanObservation(data.observation);
       if(data.reflective_question) setPlanQuestion(data.reflective_question);
+      // Cache result for the day
+      try{ localStorage.setItem(planCacheKey,JSON.stringify({candidates:cands,observation:data.observation,reflective_question:data.reflective_question})); }catch{}
     }).catch(()=>{}).finally(()=>setCandidatesLoading(false));
   };
 
-  useEffect(()=>{ if(tasks.filter(t=>!t.done).length>0&&top10Candidates.length===0) loadCandidates(); },[]);
+  useEffect(()=>{
+    // Restore from today's cache first — skip API if valid results exist
+    try{
+      const cached=JSON.parse(localStorage.getItem(planCacheKey)||"null");
+      if(cached){
+        const valid=(cached.candidates||[]).filter(c=>tasks.find(t=>String(t.id)===String(c.task.id)&&!t.done));
+        if(valid.length){
+          setTop10Candidates(valid);
+          if(cached.observation) setPlanObservation(cached.observation);
+          if(cached.reflective_question) setPlanQuestion(cached.reflective_question);
+          return;
+        }
+      }
+    }catch{}
+    if(tasks.filter(t=>!t.done).length>0) loadCandidates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   // Load today's Top 3 from localStorage on mount
   useEffect(()=>{
