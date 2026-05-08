@@ -1251,10 +1251,9 @@ function TaskCard({T, task, badge, onCheck, onClick, onRemove, draggable:isDrag,
   );
 }
 
-function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone}) {
+function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, onTaskClick, workBlockMins, setWorkBlockMins, markDone, outerScrollRef}) {
   const PX_HR=96, PX_MIN=PX_HR/60, START_H=6, END_H=22, GAP=3;
   const TOTAL_PX=(END_H-START_H)*PX_HR;
-  const scrollRef=useRef(null);
   const gestureRef=useRef(null);
   const sheetBlockRef=useRef(null);
   const longPressRef=useRef(null);
@@ -1296,7 +1295,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const closeBlock=()=>{ setSheetVisible(false); setTimeout(()=>{ setExpandedId(null); sheetBlockRef.current=null; },360); };
 
   useEffect(()=>{
-    const t=setTimeout(()=>{ if(scrollRef.current)scrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
+    const t=setTimeout(()=>{ if(outerScrollRef?.current)outerScrollRef.current.scrollTop=Math.max(0,nowPx-90); },150);
     return ()=>clearTimeout(t);
   },[]);
 
@@ -1306,6 +1305,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   useEffect(()=>{
     if(!gesture)return;
     const onMove=(e)=>{
+      if(e.cancelable) e.preventDefault();
       const cy=e.touches?e.touches[0].clientY:e.clientY;
       const g=gestureRef.current;
       if(!g)return;
@@ -1425,9 +1425,8 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
 
   return (
     <>
-      {/* Calendar grid */}
-      <div ref={scrollRef} style={{overflowY:"auto",height:"calc(100vh - 220px)",marginLeft:-20,marginRight:-20,WebkitOverflowScrolling:"touch",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
-        <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto"}}>
+      {/* Calendar grid — parent PlanContent handles scroll */}
+      <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
 
           {/* Hour lines */}
           {hours.map(h=>(
@@ -1464,8 +1463,8 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 {/* Header — long-press body to drag, tap chevron to expand */}
                 <div style={{display:"flex",alignItems:"center",height:blockH-28}}>
                   <div
-                    onMouseDown={e=>startDrag(e,block)}
-                    onTouchStart={e=>onBlockTouchStart(e,block)}
+                    onPointerDown={e=>{ if(e.pointerType==="mouse") startDrag(e,block); }}
+                    onTouchStart={e=>{ e.stopPropagation(); onBlockTouchStart(e,block); }}
                     onTouchMove={e=>onBlockTouchMove(e)}
                     onTouchEnd={()=>onBlockTouchEnd()}
                     style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:gesture==="drag-"+block.id?"none":"pan-y",minWidth:0}}>
@@ -1498,7 +1497,6 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
               <div style={{position:"absolute",left:-5,top:-3.5,width:9,height:9,borderRadius:"50%",background:T.accent}}/>
             </div>
           )}
-        </div>
       </div>
 
       {/* Backdrop */}
@@ -1573,6 +1571,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [routineDone,setRoutineDone]=useState({});
   const [selected,setSelected]=useState(null);
   const [sheetOpen,setSheetOpen]=useState(false);
+  const contentScrollRef=useRef(null);
 
   // Staleness: task id is a ms timestamp and > 7 days old
   const isParked=(task)=>{
@@ -1650,9 +1649,9 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   },[tasks,allTasksFilter]);
 
   return (
-    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"0 0 40px"}}>
-      {/* Header — sticky so it doesn't scroll away with the calendar */}
-      <div style={{padding:"16px 20px 0",background:T.bg,position:"sticky",top:0,zIndex:10}}>
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      {/* Header — always visible, never scrolls */}
+      <div style={{flexShrink:0,padding:"16px 20px 0",background:T.bg}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
@@ -1667,7 +1666,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
         </div>
       </div>
 
-      <div style={{padding:"14px 20px 0"}}>
+      <div ref={contentScrollRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:planView==="calendar"?"0":"14px 20px 40px"}}>
         {planView==="today"?(
           <>
             {/* Algorithm observation */}
@@ -1806,7 +1805,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
             </div>
           </>
         ):(
-          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone}/>
+          <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone} outerScrollRef={contentScrollRef}/>
         )}
       </div>
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}} onGetUnstuck={onGetUnstuck}/>
