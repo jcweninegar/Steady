@@ -1257,6 +1257,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const gestureRef=useRef(null);
   const sheetBlockRef=useRef(null);
   const longPressRef=useRef(null);
+  const blockOffsetsRef=useRef({});
+  const allBlocksRef=useRef([]);
+  const gridRef=useRef(null);
   const [gesture,setGesture]=useState(null);
   const [expandedId,setExpandedId]=useState(null);  // block id or null
   const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
@@ -1286,6 +1289,8 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   }).sort((a,b)=>a.startMins-b.startMins);
 
   const ALL_BLOCKS=buildBlocks();
+  allBlocksRef.current=ALL_BLOCKS;
+  blockOffsetsRef.current=blockOffsets;
 
   // Keep sheet content available during close animation
   if(expandedId) sheetBlockRef.current=ALL_BLOCKS.find(b=>b.id===expandedId)||sheetBlockRef.current;
@@ -1360,21 +1365,34 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     setGesture("drag-"+block.id);
   };
 
-  // Long-press (400ms) to activate drag on touch; tap falls through to chevron
-  const onBlockTouchStart=(e,block)=>{
-    if(gesture) return;
-    const startY=e.touches[0].clientY;
-    const others=ALL_BLOCKS.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
-    longPressRef.current={
-      blockId:block.id, startY,
-      timer:setTimeout(()=>{
-        if(navigator.vibrate) navigator.vibrate(35);
-        gestureRef.current={type:"drag",y:startY,id:block.id,defaultStart:block.h*60+block.m,origOff:blockOffsets[block.id]||0,myDur:block.dur,moved:true,others};
-        setGesture("drag-"+block.id);
-        longPressRef.current=null;
-      },400),
+  // Native non-passive touchstart on the grid — lets us preventDefault before
+  // iOS fires its own 300ms text-selection / callout gesture.
+  useEffect(()=>{
+    const grid=gridRef.current;
+    if(!grid) return;
+    const handler=(e)=>{
+      const zone=e.target.closest('[data-drag-zone]');
+      if(!zone||gestureRef.current) return;
+      e.preventDefault();
+      const startY=e.touches[0].clientY;
+      const blockId=zone.dataset.dragZone;
+      const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
+      if(!block) return;
+      const others=allBlocksRef.current.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
+      longPressRef.current={
+        blockId,startY,
+        timer:setTimeout(()=>{
+          if(navigator.vibrate) navigator.vibrate(35);
+          gestureRef.current={type:"drag",y:startY,id:block.id,defaultStart:block.h*60+block.m,origOff:blockOffsetsRef.current[block.id]||0,myDur:block.dur,moved:true,others};
+          setGesture("drag-"+block.id);
+          longPressRef.current=null;
+        },400),
+      };
     };
-  };
+    grid.addEventListener('touchstart',handler,{passive:false});
+    return ()=>grid.removeEventListener('touchstart',handler);
+  },[]);
+
   const onBlockTouchMove=(e)=>{
     if(!longPressRef.current) return;
     if(Math.abs(e.touches[0].clientY-longPressRef.current.startY)>8){
@@ -1426,7 +1444,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   return (
     <>
       {/* Calendar grid — parent PlanContent handles scroll */}
-      <div style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
+      <div ref={gridRef} style={{position:"relative",height:TOTAL_PX+80,userSelect:gesture?"none":"auto",cursor:gesture&&gesture.startsWith("drag-")?"grabbing":"default"}}>
 
           {/* Hour lines */}
           {hours.map(h=>(
@@ -1465,9 +1483,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 <div style={{display:"flex",alignItems:"center",height:blockH-28}}>
                   <div
                     onPointerDown={e=>{ if(e.pointerType==="mouse") startDrag(e,block); }}
-                    onTouchStart={e=>{ e.stopPropagation(); onBlockTouchStart(e,block); }}
                     onTouchMove={e=>onBlockTouchMove(e)}
                     onTouchEnd={()=>onBlockTouchEnd()}
+                    data-drag-zone={String(block.id)}
                     style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:"none",minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
