@@ -1260,7 +1260,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const blockOffsetsRef=useRef({});
   const allBlocksRef=useRef([]);
   const gridRef=useRef(null);
+  const editingBlockIdRef=useRef(null);
   const [gesture,setGesture]=useState(null);
+  const [editingBlockId,setEditingBlockId]=useState(null);
   const [expandedId,setExpandedId]=useState(null);  // block id or null
   const [sheetVisible,setSheetVisible]=useState(false); // drives CSS transform
   const [blockOffsets,setBlockOffsets]=useState(()=>{try{const s=localStorage.getItem("steady_cal_offsets");return s?JSON.parse(s):{morning:0,startup:0,workblock:0,shutdown:0,evening:0};}catch{return {morning:0,startup:0,workblock:0,shutdown:0,evening:0};}});
@@ -1291,6 +1293,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   const ALL_BLOCKS=buildBlocks();
   allBlocksRef.current=ALL_BLOCKS;
   blockOffsetsRef.current=blockOffsets;
+  editingBlockIdRef.current=editingBlockId;
 
   // Keep sheet content available during close animation
   if(expandedId) sheetBlockRef.current=ALL_BLOCKS.find(b=>b.id===expandedId)||sheetBlockRef.current;
@@ -1372,36 +1375,55 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     if(!grid) return;
     const handler=(e)=>{
       if(gestureRef.current) return;
-      // Resize handle — activate immediately, no long-press
+      const editingId=editingBlockIdRef.current;
+
+      // Resize handle — only available once block is in edit mode
       const resizeZone=e.target.closest('[data-resize-zone]');
       if(resizeZone){
-        e.preventDefault();
         const blockId=resizeZone.dataset.resizeZone;
+        if(editingId!==blockId){ if(editingId){editingBlockIdRef.current=null;setEditingBlockId(null);} return; }
+        e.preventDefault();
         const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
         if(!block) return;
-        const cy=e.touches[0].clientY;
-        gestureRef.current={type:"resize",y:cy,id:block.id,origDur:block.dur};
+        gestureRef.current={type:"resize",y:e.touches[0].clientY,id:block.id,origDur:block.dur};
         setGesture("resize-"+block.id);
         return;
       }
-      // Drag zone — 400ms long-press to activate
+
+      // Drag zone
       const dragZone=e.target.closest('[data-drag-zone]');
-      if(!dragZone) return;
-      e.preventDefault();
-      const startY=e.touches[0].clientY;
-      const blockId=dragZone.dataset.dragZone;
-      const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
-      if(!block) return;
-      const others=allBlocksRef.current.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
-      longPressRef.current={
-        blockId,startY,
-        timer:setTimeout(()=>{
-          if(navigator.vibrate) navigator.vibrate(35);
+      if(dragZone){
+        const blockId=dragZone.dataset.dragZone;
+        if(editingId===blockId){
+          // Already editing — immediate drag, prevent scroll
+          e.preventDefault();
+          const startY=e.touches[0].clientY;
+          const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
+          if(!block) return;
+          const others=allBlocksRef.current.filter(b=>b.id!==block.id).map(b=>({startMins:b.startMins,endMins:b.endMins}));
           gestureRef.current={type:"drag",y:startY,id:block.id,defaultStart:block.h*60+block.m,origOff:blockOffsetsRef.current[block.id]||0,myDur:block.dur,moved:true,others};
           setGesture("drag-"+block.id);
-          longPressRef.current=null;
-        },400),
-      };
+        } else {
+          // Not editing — 400ms long-press enters edit mode; scroll is allowed until then
+          if(editingId){editingBlockIdRef.current=null;setEditingBlockId(null);}
+          const startY=e.touches[0].clientY;
+          const block=allBlocksRef.current.find(b=>String(b.id)===blockId);
+          if(!block) return;
+          longPressRef.current={
+            blockId,startY,
+            timer:setTimeout(()=>{
+              if(navigator.vibrate) navigator.vibrate(35);
+              editingBlockIdRef.current=blockId;
+              setEditingBlockId(blockId);
+              longPressRef.current=null;
+            },400),
+          };
+        }
+        return;
+      }
+
+      // Touch outside any block zone — exit edit mode
+      if(editingId){editingBlockIdRef.current=null;setEditingBlockId(null);}
     };
     grid.addEventListener('touchstart',handler,{passive:false});
     return ()=>grid.removeEventListener('touchstart',handler);
@@ -1480,16 +1502,18 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
             const cardTotal=block.isRoutine?block.defMins:0;
             const hasOverflow=block.isRoutine&&blockDurs[block.id]!=null&&cardTotal>blockDurs[block.id];
             const isOpen=expandedId===block.id;
+            const isEditing=editingBlockId===block.id;
+            const dimmed=!!editingBlockId&&!isEditing;
 
             return (
               <div key={block.id} style={{
                 position:"absolute",left:58,right:10,top:block.top,height:blockH,
                 background:T.card,
-                border:"1.5px solid "+(hasOverflow?"#E07A5F70":isDragging||isResizing?T.accent:isOpen?T.accent+"80":T.border),
+                border:"1.5px solid "+(hasOverflow?"#E07A5F70":isDragging||isResizing||isEditing?T.accent:isOpen?T.accent+"80":T.border),
                 borderRadius:12,overflow:"hidden",boxSizing:"border-box",
-                opacity:allDone?0.4:1,
-                boxShadow:isDragging?"0 10px 30px rgba(0,0,0,0.2)":isOpen?"0 0 0 2px "+T.accent+"30":"none",
-                zIndex:isDragging?30:1,
+                opacity:dimmed?0.35:allDone?0.4:1,
+                boxShadow:isDragging?"0 10px 30px rgba(0,0,0,0.2)":isEditing?"0 0 0 3px "+T.accent+"44":isOpen?"0 0 0 2px "+T.accent+"30":"none",
+                zIndex:isDragging?30:isEditing?20:1,
                 transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
                 userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",
               }}>
@@ -1500,8 +1524,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                     onTouchMove={e=>onBlockTouchMove(e)}
                     onTouchEnd={()=>onBlockTouchEnd()}
                     data-drag-zone={String(block.id)}
-                    style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:"none",minWidth:0}}>
+                    style={{flex:1,padding:"0 6px 0 12px",cursor:isDragging?"grabbing":isEditing?"grab":"default",touchAction:isEditing?"none":"pan-y",minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {isEditing&&<span style={{fontSize:13,color:T.accent,flexShrink:0,lineHeight:1}}>⠿</span>}
                       <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
                       {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
                     </div>
@@ -1509,8 +1534,10 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                       {block.isWorkBlock?`${workTasks.length} tasks · ${durStr(workBlockMins)}`:durStr(block.dur)}
                     </div>
                   </div>
-                  <div onClick={()=>isOpen?closeBlock():openBlock(block.id)} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0}}>
-                    {CHEVRON(T.sub,isOpen)}
+                  <div onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))} style={{padding:"8px 12px",cursor:"pointer",flexShrink:0,minWidth:44,textAlign:"center"}}>
+                    {isEditing
+                      ? <span style={{fontSize:11,fontWeight:700,color:T.accent,letterSpacing:0.2}}>Done</span>
+                      : CHEVRON(T.sub,isOpen)}
                   </div>
                 </div>
                 {/* Resize handle */}
@@ -1699,7 +1726,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
         </div>
       </div>
 
-      <div ref={contentScrollRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:planView==="calendar"?"0":"14px 20px 40px"}}>
+      <div ref={contentScrollRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",overscrollBehavior:"contain",padding:planView==="calendar"?"0":"14px 20px 40px"}}>
         {planView==="today"?(
           <>
             {/* Algorithm observation */}
