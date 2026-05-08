@@ -1594,11 +1594,11 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
           )}
       </div>
 
-      {/* Backdrop */}
+      {/* Backdrop — starts below sticky header so tabs remain tappable */}
       <div
         onClick={closeBlock}
         style={{
-          position:"fixed",inset:0,
+          position:"fixed",top:174,left:0,right:0,bottom:0,
           background:"rgba(0,0,0,0.28)",
           zIndex:290,
           opacity:sheetVisible?1:0,
@@ -1606,10 +1606,9 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
           transition:"opacity 0.32s ease",
         }}/>
 
-      {/* Expanded block bottom sheet (~2/3 screen, slide-up animation) */}
+      {/* Expanded block bottom sheet — starts below sticky header */}
       <div style={{
-        position:"fixed",bottom:0,left:0,right:0,
-        height:"68vh",
+        position:"fixed",top:174,bottom:0,left:0,right:0,
         background:T.bg,
         borderRadius:"22px 22px 0 0",
         boxShadow:"0 -10px 48px rgba(0,0,0,0.18)",
@@ -1744,9 +1743,9 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   },[tasks,allTasksFilter]);
 
   return (
-    <div style={{height:"100%",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{height:"100%",display:"flex",flexDirection:"column",overflow:"visible"}}>
       {/* Header — always visible, never scrolls */}
-      <div style={{flexShrink:0,padding:"16px 20px 0",background:T.bg}}>
+      <div style={{flexShrink:0,padding:"16px 20px 0",background:T.bg,position:"relative",zIndex:351}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
         <div style={{fontSize:42,fontWeight:300,color:T.text,fontFamily:"'Lora',serif",letterSpacing:"-2px",lineHeight:1}}>{timeStr}</div>
         <div style={{background:T.surface,borderRadius:2,height:2,overflow:"hidden",marginTop:10}}>
