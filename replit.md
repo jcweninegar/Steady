@@ -79,6 +79,7 @@ Auto-creates a profile row on new user signup via trigger.
 - Imported from GitHub private repo (jcweninegar/Steady), dev branch
 - Working through PRD section by section, saving checkpoints between sections
 - Architecture naming: **Card** = task, **Block** = expandable container of cards
+- **Git workflow**: After every set of changes, push to the `dev` branch (`git push origin main:dev`). Only push to `main` when publishing/deploying to production.
 
 ## Data persistence
 - **Tasks**: localStorage (instant) + Supabase `tasks` table (debounced 1.5s). On first login, any existing localStorage tasks are pushed up. On subsequent logins from a new device, Supabase is the source of truth. Sync key: `(user_id, client_id)` where `client_id = String(Date.now())`.
