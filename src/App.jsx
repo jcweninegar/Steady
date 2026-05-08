@@ -1567,7 +1567,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                   </div>
                   <div
                     data-no-drag
-                    onTouchEnd={e=>{e.stopPropagation();isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id));}}
+                    onTouchEnd={e=>{e.stopPropagation();e.preventDefault();isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id));}}
                     onClick={()=>isEditing?setEditingBlockId(null):(isOpen?closeBlock():openBlock(block.id))}
                     style={{alignSelf:"stretch",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 12px",cursor:"pointer",flexShrink:0,minWidth:44}}>
                     {isEditing
@@ -2632,7 +2632,7 @@ export default function App() {
             }}
           />}
         </Sheet>
-        <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan" overflow="hidden">
+        <Sheet T={T} open={activeSheet==="plan"} onClose={closeSheet} chatBarRef={chatBarRef} title="Plan" overflow="visible">
           {activeSheet==="plan"&&<PlanContent T={T} tasks={tasks} setTasks={setTasks} captures={captures} userId={session?.user?.id} onGetUnstuck={(task)=>{ closeSheet(); setTimeout(()=>openSheet("chat",null,`I'm feeling stuck on "${task?.label||"a task"}". Help me break this down and figure out my next step.`),320); }}/>}
         </Sheet>
         <Sheet T={T} open={activeSheet==="lifemap"} onClose={closeSheet} chatBarRef={chatBarRef} title="Life Map">
