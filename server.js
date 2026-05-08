@@ -223,6 +223,7 @@ app.post("/api/braindump-chat", async (req, res) => {
   if (!messages) return res.status(400).json({ error: "messages required" });
 
   const today = new Date().toLocaleDateString("en-CA");
+  const todayFull = new Date().toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" });
   const history = await getJournalHistory(userId);
   const historyBlock = formatHistoryForAI(history);
 
@@ -253,7 +254,7 @@ app.post("/api/braindump-chat", async (req, res) => {
     .join(", ");
 
   const system = `You are steady., a calm ADHD support companion and second brain.
-Today: ${today}
+Today: ${todayFull} (${today})
 
 KNOWLEDGE BASE — use this to inform all responses:
 ${knowledgeBase}

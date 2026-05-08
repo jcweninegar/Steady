@@ -1702,7 +1702,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [planView,setPlanView]=useState("today");
   const [workTasks,setWorkTasks]=useState([]);
   const [top10Candidates,setTop10Candidates]=useState([]);
-  const top3Key="steady_top3_"+new Date().toISOString().split("T")[0];
+  const top3Key="steady_top3_"+new Date().toLocaleDateString("en-CA");
   const [planObservation,setPlanObservation]=useState(null);
   const [planQuestion,setPlanQuestion]=useState(null);
   const [candidatesLoading,setCandidatesLoading]=useState(false);
@@ -1758,7 +1758,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
 
   const buildEmotionalSignal=()=>{
     const last7=[]; const nowD=new Date();
-    for(let i=0;i<7;i++){ const d=new Date(nowD-i*86400000).toISOString().split("T")[0]; last7.push(localRatings[d]||"?"); }
+    for(let i=0;i<7;i++){ const d=new Date(nowD-i*86400000).toLocaleDateString("en-CA"); last7.push(localRatings[d]||"?"); }
     const hardCount=last7.filter(x=>x==="Hard").length;
     return { last7Days:last7, hardStreak:hardCount>=3?"elevated":hardCount>=1?"some difficulty":"stable" };
   };
@@ -2013,8 +2013,8 @@ function NavDrawer({T, open, onClose, onOpen, chatDates, onViewDate, profile, si
     {id:"lifemap", icon:IC.lifemap, label:"Life Map",  sub:"Your baseline"},
     {id:"journal", icon:IC.journal, label:"Journal",   sub:"Your record"},
   ];
-  const todayStr=new Date().toISOString().split("T")[0];
-  const yesterStr=new Date(Date.now()-86400000).toISOString().split("T")[0];
+  const todayStr=new Date().toLocaleDateString("en-CA");
+  const yesterStr=new Date(Date.now()-86400000).toLocaleDateString("en-CA");
   const dateLabel=(d)=>{
     if(d===todayStr) return "Today";
     if(d===yesterStr) return "Yesterday";
@@ -2083,8 +2083,8 @@ function Observation({T, completedTasks}) {
 }
 
 function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate, userId}) {
-  const todayStr=new Date().toISOString().split("T")[0];
-  const [selectedDate,setSelectedDate]=useState(initialDate||new Date().toISOString().split("T")[0]);
+  const todayStr=new Date().toLocaleDateString("en-CA");
+  const [selectedDate,setSelectedDate]=useState(initialDate||new Date().toLocaleDateString("en-CA"));
   const [sbChats,setSbChats]=useState({});
 
   // Fetch historical chat from Supabase when localStorage doesn't have it
@@ -2193,7 +2193,7 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
   const monthLabel=(mk)=>{ const [y,m]=mk.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
   const entryDateLabel=(d)=>{
     if(d===todayStr) return "Today";
-    const yest=new Date(Date.now()-86400000).toISOString().split("T")[0];
+    const yest=new Date(Date.now()-86400000).toLocaleDateString("en-CA");
     if(d===yest) return "Yesterday";
     return new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
   };
@@ -2486,10 +2486,10 @@ export default function App() {
   const [tasks,setTasks]=useState(()=>{ try{ const s=localStorage.getItem("steady_tasks"); return s?JSON.parse(s):MOCK_TASKS; }catch{return MOCK_TASKS;} });
 
   // ── Chat history ──
-  const todayKey=()=>new Date().toISOString().split("T")[0];
+  const todayKey=()=>new Date().toLocaleDateString("en-CA");
   const chatStorageKey=(d)=>"steady_chat_"+d;
   const [chatDates,setChatDates]=useState(()=>{ try{ return Object.keys(localStorage).filter(k=>k.startsWith("steady_chat_")).map(k=>k.replace("steady_chat_","")).sort().reverse(); }catch{return[];} });
-  const [todayChatMessages,setTodayChatMessages]=useState(()=>{ try{ const s=localStorage.getItem(chatStorageKey(new Date().toISOString().split("T")[0])); return s?JSON.parse(s):null; }catch{return null;} });
+  const [todayChatMessages,setTodayChatMessages]=useState(()=>{ try{ const s=localStorage.getItem(chatStorageKey(new Date().toLocaleDateString("en-CA"))); return s?JSON.parse(s):null; }catch{return null;} });
   const [journalInitialDate,setJournalInitialDate]=useState(null);
 
   const chatSyncTimerRef=useRef(null);
