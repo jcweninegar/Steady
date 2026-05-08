@@ -1302,13 +1302,14 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
   useEffect(()=>{ try{localStorage.setItem("steady_cal_offsets",JSON.stringify(blockOffsets));}catch{} },[blockOffsets]);
   useEffect(()=>{ try{localStorage.setItem("steady_cal_durs",JSON.stringify(blockDurs));}catch{} },[blockDurs]);
 
+  // Always-on gesture listeners — registered once so touchmove is passive:false
+  // from the very first touchmove, preventing page scroll during resize/drag.
   useEffect(()=>{
-    if(!gesture)return;
     const onMove=(e)=>{
+      if(!gestureRef.current) return;
       if(e.cancelable) e.preventDefault();
       const cy=e.touches?e.touches[0].clientY:e.clientY;
       const g=gestureRef.current;
-      if(!g)return;
       if(g.type==="resize"){
         const snapped=Math.round(((cy-g.y)/PX_MIN)/15)*15;
         const nd=Math.max(15,Math.min(600,g.origDur+snapped));
@@ -1319,7 +1320,6 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
         if(Math.abs(dy)>6) g.moved=true;
         if(!g.moved) return;
         let proposed=g.defaultStart+g.origOff+dy/PX_MIN;
-        // No-overlap: establish hard lower/upper bounds from other blocks
         let lo=START_H*60, hi=(END_H-0.5)*60-g.myDur;
         const myCenter=proposed+g.myDur/2;
         for(const o of g.others){
@@ -1339,7 +1339,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
     window.addEventListener("touchmove",onMove,{passive:false});
     window.addEventListener("touchend",onUp);
     return ()=>{ window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onUp); };
-  },[gesture]);
+  },[]);
 
   const startResize=(e,block)=>{
     e.preventDefault();e.stopPropagation();
@@ -1459,6 +1459,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                 boxShadow:isDragging?"0 10px 30px rgba(0,0,0,0.2)":isOpen?"0 0 0 2px "+T.accent+"30":"none",
                 zIndex:isDragging?30:1,
                 transition:isDragging?"none":"box-shadow 0.2s,border-color 0.2s,opacity 0.3s",
+                userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",
               }}>
                 {/* Header — long-press body to drag, tap chevron to expand */}
                 <div style={{display:"flex",alignItems:"center",height:blockH-28}}>
@@ -1467,7 +1468,7 @@ function CalendarView({T, workTasks, setWorkTasks, routineDone, setRoutineDone, 
                     onTouchStart={e=>{ e.stopPropagation(); onBlockTouchStart(e,block); }}
                     onTouchMove={e=>onBlockTouchMove(e)}
                     onTouchEnd={()=>onBlockTouchEnd()}
-                    style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:gesture==="drag-"+block.id?"none":"pan-y",minWidth:0}}>
+                    style={{flex:1,padding:"0 6px 0 12px",cursor:gesture==="drag-"+block.id?"grabbing":"grab",touchAction:"none",minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{block.label}</span>
                       {hasOverflow&&<span style={{fontSize:9,background:"#E07A5F22",color:"#E07A5F",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>over</span>}
@@ -1649,7 +1650,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   },[tasks,allTasksFilter]);
 
   return (
-    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{height:"100%",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {/* Header — always visible, never scrolls */}
       <div style={{flexShrink:0,padding:"16px 20px 0",background:T.bg}}>
         <div style={{fontSize:13,color:T.sub,marginBottom:2}}>{dateStr}</div>
