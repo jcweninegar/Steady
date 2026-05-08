@@ -42,6 +42,8 @@ const PlusIcon = ({c}) => <svg width="17" height="17" viewBox="0 0 24 24" fill="
 const XIcon = ({c,size=16}) => <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><path d="M2 2l14 14M16 2L2 16" stroke={c} strokeWidth="1.8" strokeLinecap="round"/></svg>;
 const ChevronRight = ({c}) => <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 const CheckIcon = ({c="#fff"}) => <svg width="10" height="8" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+const ClockIcon = ({c="currentColor", size=10}) => <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke={c} strokeWidth="1.4"/><path d="M8 4.5v3.5l2.5 1.5" stroke={c} strokeWidth="1.4" strokeLinecap="round"/></svg>;
+function trackEvent(userId, event) { if(!userId||userId==="dev") return; supabase.from("events").insert({user_id:userId,event}).then(()=>{}); }
 
 // ── SHEET WRAPPER — every screen uses this ────────────────────────────────────
 function Sheet({T, open, onClose, chatBarRef, children, title, overflow="auto"}) {
@@ -501,11 +503,11 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
 
-    if (hasExtracted) {
-      sendToChat(newMsgs, tasks);
-    } else {
-      runExtract(text.trim(), newMsgs);
-    }
+    // Always run extraction — if it finds tasks/captures it shows cards,
+    // if not it falls through to chat automatically. This ensures cards
+    // appear on every brain dump, not just the first one of the day.
+    trackEvent(userId, "brain_dump_submitted");
+    runExtract(text.trim(), newMsgs);
   };
 
   useImperativeHandle(ref, () => ({ sendMessage }));
@@ -606,7 +608,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
                   )}
 
                   {/* Post-extraction conversation hint */}
-                  {!msg.clarifyingQuestion && hasExtracted && i===messages.length-1 && (
+                  {!msg.clarifyingQuestion && messages.some(m=>m.isDump) && i===messages.length-1 && (
                     <div style={{fontSize:13,color:T.muted,lineHeight:1.55,marginTop:4}}>
                       Fix details, add dates, or ask anything.
                     </div>
@@ -1089,16 +1091,17 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
   const [newSubMins,setNewSubMins]=useState("15m");
   const [newSubDue,setNewSubDue]=useState("");
   const [notes,setNotes]=useState("");
+  const [startTime,setStartTime]=useState("");
   const [timerActive,setTimerActive]=useState(false);
   const [timerDisplay,setTimerDisplay]=useState("");
   const dragY=useRef(null);
 
   useEffect(()=>{
-    if(task){setArea(task.area||"work");setName(task.label||"");setDesc(task.desc||"");setHours(task.hours||"0h");setMins(task.mins||"30m");setDueDate(task.dueDate||"");setSubtasks(task.subtasks||[]);setNotes(task.notes||"");}
+    if(task){setArea(task.area||"work");setName(task.label||"");setDesc(task.desc||"");setHours(task.hours||"0h");setMins(task.mins||"30m");setDueDate(task.dueDate||"");setStartTime(task.startTime||"");setSubtasks(task.subtasks||[]);setNotes(task.notes||"");}
   },[task]);
   useEffect(()=>{ if(open) setTimeout(()=>setVisible(true),10); else setVisible(false); },[open]);
 
-  const handleClose=()=>{ onSave({...task,area,label:name,desc,hours,mins,dueDate,subtasks,notes});setVisible(false);setTimeout(onClose,320); };
+  const handleClose=()=>{ onSave({...task,area,label:name,desc,hours,mins,dueDate,startTime,subtasks,notes});setVisible(false);setTimeout(onClose,320); };
   const onDS=e=>{ dragY.current=e.touches[0].clientY;if(sheetRef.current)sheetRef.current.style.transition="none"; };
   const onDM=e=>{ if(!dragY.current)return;const dy=e.touches[0].clientY-dragY.current;if(dy>0&&sheetRef.current)sheetRef.current.style.transform="translateY("+dy+"px)"; };
   const onDE=e=>{ const dy=e.changedTouches[0].clientY-(dragY.current||0);if(sheetRef.current)sheetRef.current.style.transition="";if(dy>80)handleClose();else if(sheetRef.current)sheetRef.current.style.transform="";dragY.current=null; };
@@ -1156,6 +1159,15 @@ function TaskSheet({T, task, open, onClose, onSave, onDelete, onGetUnstuck}) {
               <div style={{flex:1}}>
                 <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>Due date</div>
                 <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} style={{...sel}}/>
+              </div>
+            </div>
+            <div style={{marginTop:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase",marginBottom:8}}>
+                Start time <span style={{fontWeight:400,opacity:0.6}}>(optional)</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <ClockIcon c={T.muted} size={14}/>
+                <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} style={{...sel,flex:1}}/>
               </div>
             </div>
           </div>
@@ -1753,6 +1765,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
     setWorkTasks(prev=>{
       if(prev.find(t=>t.id===task.id)) return prev.filter(t=>t.id!==task.id);
       if(prev.length>=3) return prev;
+      trackEvent(userId,"task_confirmed");
       return [...prev,task];
     });
   };
@@ -1870,6 +1883,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
                     {confirmed?(
                       <>
                         <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{confirmed.label}</span>
+                        {confirmed.startTime&&<span style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:T.muted,flexShrink:0}}><ClockIcon c={T.muted} size={10}/>{confirmed.startTime}</span>}
                         <button onClick={()=>markDone(confirmed.id)} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                           <svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </button>
@@ -1911,6 +1925,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
                             <span style={{fontSize:10,fontWeight:700,color:isConf?T.accentText:T.muted}}>{idx+1}</span>
                           </div>
                           <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</span>
+                          {task.startTime&&<span style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:T.muted,flexShrink:0}}><ClockIcon c={T.muted} size={10}/>{task.startTime}</span>}
                           <span style={{fontSize:11,color:T.muted,flexShrink:0}}>{task.hours}{task.hours!=="0h"?" ":""}{task.mins}</span>
                           <button onClick={e=>{ e.stopPropagation(); confirmTask(task); }}
                             style={{width:28,height:28,borderRadius:"50%",
@@ -1965,6 +1980,7 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
                           <div style={{fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</div>
                           <div style={{display:"flex",gap:6,alignItems:"center",marginTop:1}}>
                             {task.dueDate&&<span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
+                            {task.startTime&&<span style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:T.muted}}><ClockIcon c={T.muted} size={10}/>{task.startTime}</span>}
                             {isParked(task)&&<span style={{fontSize:10,color:T.muted,background:T.surface,borderRadius:4,padding:"1px 5px"}}>parked</span>}
                           </div>
                         </div>
@@ -2196,6 +2212,7 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
     setGenerating(date);
     const chatCaptures=msgs.filter(m=>m.role==="user").map(m=>({text:m.text}));
     const completedTasksList=date===todayStr?(tasks||[]).filter(t=>t.done):[];
+    if(date===todayStr&&completedTasksList.length>0&&msgs.filter(m=>m.role==="user").length>0) trackEvent(userId,"full_loop_completed");
     fetch("/api/journal",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({captures:[...(date===todayStr?captures||[]:[]),...chatCaptures],completedTasks:completedTasksList,rating:ratingVal})
     }).then(r=>r.json())
@@ -2531,6 +2548,7 @@ export default function App() {
   const openHistoryDate=(date)=>{ setJournalInitialDate(date||null); setNavOpen(false); setActiveSheet("journal"); };
   const handleChatAction=(action)=>{ if(action?.type==="navigate") setActiveSheet(action.screen); };
 
+  const appOpenedRef=useRef(false);
   const chatBarRef=useRef(null);
   const chatBarInputRef=useRef(null);
   const chatContentRef=useRef(null);
@@ -2572,6 +2590,7 @@ export default function App() {
       steps: t.steps||[],
       subtasks: t.subtasks||[],
       notes: t.notes||"",
+      start_time: t.startTime||null,
       done: t.done||false,
       updated_at: new Date().toISOString(),
     }));
@@ -2607,6 +2626,7 @@ export default function App() {
             steps: r.steps||[],
             subtasks: r.subtasks||[],
             notes: r.notes||"",
+            startTime: r.start_time||"",
             done: r.done||false,
           }));
         if(dbTasks.length>0) setTasks(dbTasks);
@@ -2621,6 +2641,8 @@ export default function App() {
     syncTimerRef.current = setTimeout(()=>syncTasksToSupabase(tasks, session.user.id), 1500);
     return ()=>clearTimeout(syncTimerRef.current);
   },[tasks, session?.user?.id]);
+  // Track app_opened once per session
+  useEffect(()=>{ if(!session?.user?.id||devBypass||appOpenedRef.current)return; appOpenedRef.current=true; trackEvent(session.user.id,"app_opened"); },[session?.user?.id]);
 
   // ── Supabase captures sync ─────────────────────────────────────────────────
   const capturesSyncTimerRef=useRef(null);
@@ -2689,6 +2711,7 @@ export default function App() {
 
   const toggleVoice=()=>{
     if(isListening){
+      if(recognitionRef.current) recognitionRef.current.onresult=null;
       recognitionRef.current?.stop();
       setIsListening(false);
       return;
@@ -2728,6 +2751,9 @@ export default function App() {
     setChatInitialText(text);
     setActiveSheet(id);
     if(prompt) setChatPrompt(prompt);
+    const uid=session?.user?.id;
+    if(id==="plan") trackEvent(uid,"plan_viewed");
+    if(id==="journal") trackEvent(uid,"journal_viewed");
   };
   const closeSheet=()=>{ setActiveSheet(null);setChatPrompt(null);setChatInitialText(""); };
 
@@ -2736,8 +2762,8 @@ export default function App() {
     const domVal=chatBarInputRef.current?.value||"";
     const text=(chatBarInput||domVal).trim();
     if(!text) { openSheet("chat",null,""); return; }
-    // Stop mic if running
-    if(isListening){ recognitionRef.current?.stop(); setIsListening(false); }
+    // Stop mic if running — null onresult first to prevent late events repopulating the input
+    if(isListening){ if(recognitionRef.current) recognitionRef.current.onresult=null; recognitionRef.current?.stop(); setIsListening(false); }
     // Clear both React state and DOM value (iOS dictation only updates DOM)
     setChatBarInput("");
     if(chatBarInputRef.current){ chatBarInputRef.current.value=""; chatBarInputRef.current.style.height="auto"; }
