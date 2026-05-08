@@ -60,7 +60,7 @@ async function callAnthropic(system, messages, max_tokens = 1000) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens,
       system,
       messages,
@@ -87,8 +87,9 @@ Split compound inputs into separate items. Fully shape each task. Return ONLY va
 
   const prompt = `Split this brain dump into tasks and captures. Fully shape each task.
 
-TODAY: ${todayFull} (${today})
-INPUT: "${text}"
+INPUT TO SPLIT: "${text}"
+
+SPLITTING RULE: Every distinct action, event, or thought = its own separate item. Do NOT combine unrelated items even if spoken in one sentence. Example: "I need to clean the house and kids have soccer Thursday" = Task "Clean the house" (home) + Capture "Kids soccer game Thursday" (calendar-event). These are TWO different things. Never combine them.
 
 ━━━ CLASSIFICATION ━━━
 - Tasks = things the user needs to DO (call, pay, email, review, buy, schedule, fix, pick up, text, etc.)
