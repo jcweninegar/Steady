@@ -2068,6 +2068,19 @@ function Observation({T, completedTasks}) {
 function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate, userId}) {
   const todayStr=new Date().toISOString().split("T")[0];
   const [selectedDate,setSelectedDate]=useState(initialDate||new Date().toISOString().split("T")[0]);
+  const [sbChats,setSbChats]=useState({});
+
+  // Fetch historical chat from Supabase when localStorage doesn't have it
+  useEffect(()=>{
+    if(!userId||userId==="dev"||selectedDate===todayStr) return;
+    const local=(()=>{try{const s=localStorage.getItem("steady_chat_"+selectedDate);return s?JSON.parse(s):null;}catch{return null;}})();
+    if(local||sbChats[selectedDate]) return;
+    supabase.from("journal_entries").select("chat_messages")
+      .eq("user_id",userId).eq("date",selectedDate).single()
+      .then(({data})=>{
+        if(data?.chat_messages?.length) setSbChats(p=>({...p,[selectedDate]:data.chat_messages}));
+      });
+  },[selectedDate,userId]);
   const [expandedMonths,setExpandedMonths]=useState({[todayStr.slice(0,7)]:true});
   const [narratives,setNarratives]=useState(()=>{
     const s={};
@@ -2105,7 +2118,8 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
 
   const getChatMsgs=(date)=>{
     if(date===todayStr) return chatMessages||[];
-    try{ const s=localStorage.getItem("steady_chat_"+date); return s?JSON.parse(s):[]; }catch{ return []; }
+    try{ const s=localStorage.getItem("steady_chat_"+date); if(s) return JSON.parse(s); }catch{}
+    return sbChats[date]||[];
   };
   const saveNarrative=(date,text,ratingVal)=>{
     const entry={narrative:text,rating:ratingVal};
@@ -2461,7 +2475,23 @@ export default function App() {
   const [todayChatMessages,setTodayChatMessages]=useState(()=>{ try{ const s=localStorage.getItem(chatStorageKey(new Date().toISOString().split("T")[0])); return s?JSON.parse(s):null; }catch{return null;} });
   const [journalInitialDate,setJournalInitialDate]=useState(null);
 
-  const saveChatMessages=(msgs)=>{ try{ const d=todayKey(); localStorage.setItem(chatStorageKey(d),JSON.stringify(msgs)); setTodayChatMessages(msgs); setChatDates(prev=>prev.includes(d)?prev:[d,...prev]); }catch{} };
+  const chatSyncTimerRef=useRef(null);
+  const saveChatMessages=(msgs)=>{
+    try{ const d=todayKey(); localStorage.setItem(chatStorageKey(d),JSON.stringify(msgs)); setTodayChatMessages(msgs); setChatDates(prev=>prev.includes(d)?prev:[d,...prev]); }catch{}
+    // Debounced sync to Supabase (journal_entries.chat_messages)
+    clearTimeout(chatSyncTimerRef.current);
+    chatSyncTimerRef.current=setTimeout(()=>{
+      const uid=session?.user?.id;
+      if(!uid||uid==="dev") return;
+      const d=todayKey();
+      const rows=msgs.filter(m=>m.role==="user"||m.role==="ai"||m.role==="assistant")
+        .map(m=>({role:m.role,text:m.text||m.content||"",ts:m.ts||null}));
+      supabase.from("journal_entries").upsert(
+        {user_id:uid,date:d,chat_messages:rows,updated_at:new Date().toISOString()},
+        {onConflict:"user_id,date"}
+      ).then(({error})=>{ if(error) console.error("chat sync:",error.message); });
+    },2000);
+  };
   const openHistoryDate=(date)=>{ setJournalInitialDate(date||null); setNavOpen(false); setActiveSheet("journal"); };
   const handleChatAction=(action)=>{ if(action?.type==="navigate") setActiveSheet(action.screen); };
 
@@ -2555,6 +2585,72 @@ export default function App() {
     syncTimerRef.current = setTimeout(()=>syncTasksToSupabase(tasks, session.user.id), 1500);
     return ()=>clearTimeout(syncTimerRef.current);
   },[tasks, session?.user?.id]);
+
+  // ── Supabase captures sync ─────────────────────────────────────────────────
+  const capturesSyncTimerRef=useRef(null);
+  const syncCapturesToSupabase=useCallback((captureList,uid)=>{
+    if(!uid||uid==="dev"||!captureList.length) return;
+    const rows=captureList.map(c=>({
+      user_id:uid,
+      client_id:String(c.ts||c.id||Date.now()),
+      text:c.text||"",
+      type:c.type||"idea",
+      updated_at:new Date().toISOString(),
+    }));
+    supabase.from("captures").upsert(rows,{onConflict:"user_id,client_id"})
+      .then(({error})=>{ if(error) console.error("captures sync:",error.message); });
+  },[]);
+
+  // Load captures from Supabase on login
+  useEffect(()=>{
+    if(!session?.user?.id||devBypass) return;
+    const uid=session.user.id;
+    supabase.from("captures").select("*").eq("user_id",uid)
+      .order("updated_at",{ascending:false}).limit(300)
+      .then(({data,error})=>{
+        if(error) return;
+        if(!data||data.length===0){
+          const local=(()=>{try{const s=localStorage.getItem("steady_captures");return s?JSON.parse(s):[]; }catch{return[];}})();
+          if(local.length>0) syncCapturesToSupabase(local,uid);
+          return;
+        }
+        const dbCaptures=data.filter(r=>r.client_id).map(r=>({
+          ts:parseInt(r.client_id)||r.client_id,
+          id:parseInt(r.client_id)||r.client_id,
+          text:r.text||"",
+          type:r.type||"idea",
+        }));
+        if(dbCaptures.length>0) setCaptures(dbCaptures);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[session?.user?.id]);
+
+  // Debounced captures sync
+  useEffect(()=>{
+    if(!session?.user?.id||devBypass) return;
+    clearTimeout(capturesSyncTimerRef.current);
+    capturesSyncTimerRef.current=setTimeout(()=>syncCapturesToSupabase(captures,session.user.id),1500);
+    return ()=>clearTimeout(capturesSyncTimerRef.current);
+  },[captures,session?.user?.id]);
+
+  // Load chat dates from Supabase on login (merge with localStorage)
+  useEffect(()=>{
+    if(!session?.user?.id||devBypass) return;
+    supabase.from("journal_entries").select("date")
+      .eq("user_id",session.user.id)
+      .not("chat_messages","eq","[]")
+      .order("date",{ascending:false}).limit(90)
+      .then(({data})=>{
+        if(!data||!data.length) return;
+        const dbDates=data.map(r=>r.date).filter(Boolean);
+        setChatDates(prev=>{
+          const merged=[...new Set([...prev,...dbDates])].sort().reverse();
+          return merged;
+        });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[session?.user?.id]);
+
   const toggleVoice=()=>{
     if(isListening){
       recognitionRef.current?.stop();
@@ -2708,7 +2804,7 @@ export default function App() {
             savedMessages={todayChatMessages}
             onMessagesChange={saveChatMessages}
             onAction={handleChatAction}
-            onCapture={cap=>setCaptures(p=>[...p,cap])}
+            onCapture={cap=>setCaptures(p=>[...p,{...cap,ts:cap.ts||Date.now()}])}
             onAddTasks={formattedTasks=>{
               setTasks(p=>[...p,...formattedTasks]);
             }}
