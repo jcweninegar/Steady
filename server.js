@@ -173,11 +173,6 @@ Format: [{"text": "step description", "dur": 5}]
 - If no timing mentioned: urgency = "soon", dueDate = null
 - urgency options: now | soon | someday
 
-━━━ CLARIFYING QUESTION ━━━
-If 2+ tasks have no explicit timing: set ONE broad question on the FIRST task only (null on all others).
-Vary naturally: "Do any of these have deadlines?", "Anything time-sensitive here?", "Any of these need to happen by a certain date or time?", "Want to add timing or context to any of these?"
-If all tasks have timing, or there's only 1 task: null on all.
-
 Return ONLY this exact JSON:
 {
   "tasks": [{
@@ -187,7 +182,6 @@ Return ONLY this exact JSON:
     "dueDate": "YYYY-MM-DD or null",
     "duration": 30,
     "steps": [],
-    "clarifying_question": null,
     "note": "useful context sentence or null"
   }],
   "captures": [{
@@ -208,7 +202,7 @@ Return ONLY this exact JSON:
   } catch (e) {
     console.error("Extract error:", e.message);
     res.status(500).json({
-      tasks: [{ label: text, area: "work", urgency: "soon", dueDate: null, duration: 30, steps: [], clarifying_question: null, note: null }],
+      tasks: [{ label: text, area: "work", urgency: "soon", dueDate: null, duration: 30, steps: [], note: null }],
       captures: [],
       acknowledgment: "Got it.",
     });
@@ -293,13 +287,24 @@ ${taskList || "(none yet)"}
 ${captureList ? `\nRecent brain dumps: ${captureList}` : ""}
 
 Your role: help the user through natural conversation. Use your knowledge of ADHD to understand why they're struggling.
-— When they mention task corrections, new details, due dates, combining tasks, or deletions — make those changes.
-— When making ANY task changes, include a COMPLETE updated task array at the very end of your response in this exact XML block:
+
+TASK CHANGES:
+— When the user corrects task details, adds dates, renames, or adds NEW tasks → include a COMPLETE updated task array at the very end:
 <tasks>[{"id":"preserve existing id exactly","label":"...","area":"work|home|health|money|relationships|contribution|meaning","urgency":"now|soon|someday","dueDate":"YYYY-MM-DD or null","desc":"...","done":false,"subtasks":[],"notes":"","hours":"0h","mins":"30m"}]</tasks>
 — For brand new tasks the user mentions, omit the id field entirely.
-— If the user asks to open/show their plan, journal, or life map — confirm you're opening it for them.
 — If the user is just chatting with NO task changes needed, do NOT include the <tasks> block.
-— Keep your reply to 1–3 short sentences. Warm and direct. Never clinical or preachy.`;
+
+COMPLETING OR DELETING TASKS (IMPORTANT — read carefully):
+— When the user wants to mark tasks COMPLETE or DELETE/CLEAR/REMOVE tasks, do NOT modify the <tasks> block.
+— Instead, list ONLY the specifically mentioned tasks using task_actions — one entry per task:
+<task_actions>[{"type":"complete","id":"exact id from list above","label":"exact task label"},{"type":"delete","id":"exact id","label":"exact task label"}]</task_actions>
+— NEVER bulk-complete or bulk-delete. If the user says "clear everything" or "mark all done", list each task individually so the user can confirm each one.
+— The user must tap each card to confirm — do not skip this.
+
+NAVIGATION:
+— If the user asks to open/show their plan, journal, or life map — confirm you're opening it for them.
+
+TONE: Keep your reply to 1–3 short sentences. Warm and direct. Never clinical or preachy.`;
 
   try {
     const formatted = messages.map(m => ({
@@ -310,15 +315,24 @@ Your role: help the user through natural conversation. Use your knowledge of ADH
     const rawReply = await callCached(knowledgeBase, dynamicSystem, formatted, 400);
 
     const taskMatch = rawReply.match(/<tasks>([\s\S]*?)<\/tasks>/);
+    const actionMatch = rawReply.match(/<task_actions>([\s\S]*?)<\/task_actions>/);
     let updatedTasks = null;
-    let reply = rawReply.replace(/<tasks>[\s\S]*?<\/tasks>/, "").trim();
+    let taskActions = null;
+    let reply = rawReply
+      .replace(/<tasks>[\s\S]*?<\/tasks>/, "")
+      .replace(/<task_actions>[\s\S]*?<\/task_actions>/, "")
+      .trim();
 
     if (taskMatch) {
       try { updatedTasks = JSON.parse(taskMatch[1].trim()); }
       catch (e) { console.error("Task parse error:", e.message); }
     }
+    if (actionMatch) {
+      try { taskActions = JSON.parse(actionMatch[1].trim()); }
+      catch (e) { console.error("Task actions parse error:", e.message); }
+    }
 
-    res.json({ reply, updatedTasks, action });
+    res.json({ reply, updatedTasks, taskActions, action });
   } catch (e) {
     console.error("Braindump chat error:", e.message);
     res.status(500).json({ reply: "I'm here. What would you like to adjust?", updatedTasks: null, action: null });

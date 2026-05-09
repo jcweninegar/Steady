@@ -24,6 +24,28 @@ const DARK = {
   red:"#E06060", green:"#4DBF7A",
 };
 
+// ── MARKDOWN STRIPPER ─────────────────────────────────────────────────────────
+function stripMarkdown(text) {
+  if (!text) return text;
+  return text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')   // [text](url) → text
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')        // images → gone
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')         // ***bold italic***
+    .replace(/\*\*(.+?)\*\*/g, '$1')             // **bold**
+    .replace(/\*(.+?)\*/g, '$1')                 // *italic*
+    .replace(/___(.+?)___/g, '$1')               // ___bold italic___
+    .replace(/__(.+?)__/g, '$1')                 // __bold__
+    .replace(/_(.+?)_/g, '$1')                   // _italic_
+    .replace(/~~(.+?)~~/g, '$1')                 // ~~strikethrough~~
+    .replace(/`([^`]+)`/g, '$1')                 // `code`
+    .replace(/^#{1,6}\s+/gm, '')                 // # headings
+    .replace(/^[-*+]\s+/gm, '')                  // - bullet points
+    .replace(/^\d+\.\s+/gm, '')                  // 1. numbered lists
+    .replace(/^>\s+/gm, '')                      // > blockquotes
+    .replace(/\n{3,}/g, '\n\n')                  // collapse excess newlines
+    .trim();
+}
+
 // ── LIFE AREAS DATA ───────────────────────────────────────────────────────────
 const AREAS = [
   {id:"work",         label:"Work",                  research:"Adults who report meaningful work are 2x as likely to thrive overall.",          example:"I do focused work 3x per week and leave feeling capable.",        checkin:"Are you getting into flow at least once a week?"},
@@ -193,19 +215,6 @@ function TaskCardQueue({T, tasks, onConfirm, onDismissAll}) {
           )}
         </div>
 
-        {/* Clarifying question */}
-        {task.clarifying_question && (
-          <div style={{borderTop:"1px solid "+T.divider,padding:"12px 16px",background:T.surface}}>
-            <div style={{fontSize:12,color:T.sub,marginBottom:8,fontStyle:"italic"}}>"{task.clarifying_question}"</div>
-            <input
-              value={answer}
-              onChange={function(e){setAnswer(e.target.value);}}
-              onKeyDown={function(e){if(e.key==="Enter") confirm();}}
-              placeholder="Type your answer or skip..."
-              style={{width:"100%",padding:"8px 10px",borderRadius:9,border:"1px solid "+T.border,background:T.card,color:T.text,fontSize:13,fontFamily:"inherit",outline:"none"}}
-            />
-          </div>
-        )}
 
         {/* Actions */}
         <div style={{display:"flex",borderTop:"1px solid "+T.divider}}>
@@ -235,7 +244,7 @@ Your role:
 - Answer questions about ADHD, executive function, time blindness, and task initiation
 - Be calm, warm, and direct — never clinical or preachy
 - Keep responses concise and actionable — ADHD brains don't need walls of text
-- When someone dumps tasks, confirm you've got them and ask one clarifying question if needed
+- When someone dumps tasks, confirm you've got them with a short warm acknowledgment
 - When someone seems overwhelmed, name it and offer one small next step
 
 You know about: Brain Dump (capture everything), Plan (today's priorities, morning/shutdown routines), Life Map (baselines in 6 life areas), Journal (daily narrative from activity).
@@ -264,16 +273,6 @@ async function callBraindumpChat(history, tasks, captures, userId) {
 }
 
 // ── BRAIN DUMP EXTRACTION ────────────────────────────────────────────────────
-async function refineWithAnswer(tasks, captures, question, answer) {
-  const res = await fetch("/api/refine", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ tasks, captures, question, answer }),
-  });
-  if (!res.ok) throw new Error("Refine failed");
-  return res.json();
-}
-
 async function extractFromDump(rawText) {
   try {
     const response = await fetch("/api/extract", {
@@ -284,7 +283,7 @@ async function extractFromDump(rawText) {
     if(!response.ok) throw new Error("API error");
     return await response.json();
   } catch(e) {
-    return {tasks:[{label:rawText,area:"work",urgency:"soon",dueDate:null,duration:30,steps:[],clarifying_question:null,note:null}],captures:[],acknowledgment:"Got it."};
+    return {tasks:[{label:rawText,area:"work",urgency:"soon",dueDate:null,duration:30,steps:[],note:null}],captures:[],acknowledgment:"Got it."};
   }
 }
 
@@ -366,17 +365,23 @@ const msgToHistory = (m) => {
   if (m.role === "user") return { role: "user", content: m.text || "" };
   if (m.isDump) {
     const tLabels = (m.formattedTasks || []).map(t => `"${t.label}"`).join(", ");
-    const text = [m.acknowledgment, tLabels ? `Tasks added: ${tLabels}` : "", m.clarifyingQuestion || ""].filter(Boolean).join(" ");
+    const text = [m.acknowledgment, tLabels ? `Tasks added: ${tLabels}` : ""].filter(Boolean).join(" ");
     return { role: "assistant", content: text };
   }
   return { role: "assistant", content: m.text || "" };
 };
 
-const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly, onAction, captures, userId}, ref) {
+const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, onAddTasks, onRemoveTask, onUpdateTasks, tasks, savedMessages, onMessagesChange, readOnly, onAction, captures, userId, isListening, liveText}, ref) {
   const [messages, setMessages] = useState(savedMessages?.length ? savedMessages : []);
   const [loading, setLoading] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(()=>{
+    if(!window.visualViewport) return;
+    const handle=()=>setKbHeight(Math.max(0,window.innerHeight-window.visualViewport.height));
+    window.visualViewport.addEventListener("resize",handle);
+    return ()=>window.visualViewport.removeEventListener("resize",handle);
+  },[]);
   const [hasExtracted, setHasExtracted] = useState(()=>!!(savedMessages?.some(m=>m.isDump)));
-  const [pendingClarification, setPendingClarification] = useState(null);
   const [chatSheetTask, setChatSheetTask] = useState(null);
   const [chatSheetOpen, setChatSheetOpen] = useState(false);
   const extractedRef = useRef([]); // formatted tasks from last extraction (with IDs)
@@ -412,9 +417,19 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     try {
       const history = newMsgs.map(msgToHistory).filter(m => m.content.trim());
       const result = await callBraindumpChat(history, currentTasks || tasks || [], captures || [], userId);
-      setMessages(p => [...p, {role:"ai", text: result.reply || "Got it."}]);
-      if (result.updatedTasks && onUpdateTasks) {
-        onUpdateTasks(result.updatedTasks);
+
+      // Safe task mutations: surface confirmation cards instead of applying directly
+      if (result.taskActions && result.taskActions.length > 0) {
+        setMessages(p => [...p, {
+          role:"ai",
+          text: result.reply || "Here's what I heard — tap each one to confirm:",
+          taskActions: result.taskActions,
+        }]);
+      } else {
+        setMessages(p => [...p, {role:"ai", text: result.reply || "Got it."}]);
+        if (result.updatedTasks && onUpdateTasks) {
+          onUpdateTasks(result.updatedTasks);
+        }
       }
       if (result.action && onAction) {
         setTimeout(() => onAction(result.action), 700);
@@ -429,75 +444,32 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
     setLoading(true);
     extractFromDump(text).then(result => {
       const rawTasks = result.tasks || [];
-      const captures = result.captures || [];
-      const clarifyingQuestion = rawTasks.find(t => t.clarifying_question)?.clarifying_question || null;
+      const rawCaptures = result.captures || [];
 
-      if (rawTasks.length > 0 || captures.length > 0) {
-        // Format tasks with IDs and auto-add them
+      if (rawTasks.length > 0 || rawCaptures.length > 0) {
         const baseId = Date.now();
         const formattedTasks = rawTasks.map((t, i) => formatTask(t, baseId + i));
         extractedRef.current = formattedTasks;
         if (onAddTasks) onAddTasks(formattedTasks);
-        if (onCapture) captures.forEach(c => onCapture(c));
+        if (onCapture) rawCaptures.forEach(c => onCapture(c));
 
         const dumpMsg = {
           role:"ai", isDump:true,
           acknowledgment: result.acknowledgment || "Got it.",
-          formattedTasks, captures, clarifyingQuestion,
+          formattedTasks, captures: rawCaptures,
         };
         setMessages(p => [...p, dumpMsg]);
         setLoading(false);
         setHasExtracted(true);
-
-        if (clarifyingQuestion) {
-          setPendingClarification({ question: clarifyingQuestion, rawTasks, captures });
-        }
       } else {
-        // No tasks found — fall back to chat
+        // No tasks found — fall back to conversational chat
         sendToChat(prevMsgs, tasks);
       }
     }).catch(() => sendToChat(prevMsgs, tasks));
   };
 
-  const handleClarifyResponse = (answer) => {
-    const { question, rawTasks, captures } = pendingClarification;
-    const userMsg = {role:"user", text:answer};
-    const newMsgs = [...messages, userMsg];
-    setMessages(newMsgs);
-    setPendingClarification(null);
-    setLoading(true);
-    refineWithAnswer(rawTasks, captures, question, answer)
-      .then(result => {
-        const refined = result.tasks || rawTasks;
-        // Update the already-added tasks using stored IDs
-        const stored = extractedRef.current;
-        const updatedFormatted = refined.map((t, i) => ({
-          ...(stored[i] || formatTask(t, Date.now() + i)),
-          label: t.label,
-          area: t.area || "work",
-          urgency: t.urgency || "soon",
-          dueDate: t.dueDate || "",
-          desc: t.note || "",
-        }));
-        extractedRef.current = updatedFormatted;
-        if (onUpdateTasks) onUpdateTasks(updatedFormatted);
-
-        setMessages(p => {
-          let lastDumpIdx = -1;
-          for (let i = p.length - 1; i >= 0; i--) { if (p[i].isDump) { lastDumpIdx = i; break; } }
-          const base = lastDumpIdx >= 0
-            ? p.map((m, i) => i === lastDumpIdx ? {...m, formattedTasks: updatedFormatted, clarifyingQuestion: null} : m)
-            : p;
-          return [...base, {role:"ai", text: result.acknowledgment || "Got it, updated."}];
-        });
-        setLoading(false);
-      })
-      .catch(() => { setMessages(p=>[...p,{role:"ai",text:"Got it."}]); setLoading(false); });
-  };
-
   const sendMessage = (text) => {
     if (!text.trim() || loading) return;
-    if (pendingClarification) { handleClarifyResponse(text.trim()); return; }
 
     const userMsg = {role:"user", text:text.trim()};
     const newMsgs = [...messages, userMsg];
@@ -528,14 +500,11 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
   }, []);
 
   return (
-    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"24px 24px 16px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+    <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:`24px 24px ${kbHeight>100?40:88}px`,display:"flex",flexDirection:"column",justifyContent:"flex-end",WebkitMaskImage:"linear-gradient(to bottom, transparent 0px, black 72px)",maskImage:"linear-gradient(to bottom, transparent 0px, black 72px)"}}>
       <div style={{display:"flex",flexDirection:"column"}}>
         {messages.map((msg, i) => {
-          const fromEnd = messages.length - 1 - i;
-          const opacity = fromEnd===0 ? 1 : fromEnd===1 ? 0.72 : Math.max(0.15, 0.72 - fromEnd*0.15);
-          const blur = fromEnd <= 1 ? 0 : Math.min(2.5, fromEnd*0.7);
           return (
-            <div key={i} style={{marginBottom:28,transition:"opacity 0.4s,filter 0.4s",opacity,filter:blur?`blur(${blur}px)`:"none"}}>
+            <div key={i} style={{marginBottom:28}}>
               {msg.role==="user" ? (
                 /* User input — quiet memo, not the headline */
                 <div style={{fontSize:13,fontWeight:400,color:T.muted,lineHeight:1.55,whiteSpace:"pre-wrap",paddingLeft:12,borderLeft:"2px solid "+T.divider,marginBottom:4}}>{msg.text}</div>
@@ -543,7 +512,7 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
                 <div>
                   {/* AI acknowledgment — primary voice, prominent */}
                   {msg.acknowledgment&&(
-                    <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,marginBottom:18}}>{msg.acknowledgment}</div>
+                    <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,marginBottom:18}}>{stripMarkdown(msg.acknowledgment)}</div>
                   )}
 
                   {(msg.formattedTasks.length + msg.captures.length) > 0 && (
@@ -600,27 +569,55 @@ const ChatContent = forwardRef(function ChatContent({T, initialText, onCapture, 
                     </div>
                   )}
 
-                  {/* Clarifying / follow-up question — most prominent element */}
-                  {msg.clarifyingQuestion && (
-                    <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65}}>
-                      {msg.clarifyingQuestion}
-                    </div>
-                  )}
-
-                  {/* Post-extraction conversation hint */}
-                  {!msg.clarifyingQuestion && messages.some(m=>m.isDump) && i===messages.length-1 && (
+                  {/* Post-extraction hint */}
+                  {messages.some(m=>m.isDump) && i===messages.length-1 && (
                     <div style={{fontSize:13,color:T.muted,lineHeight:1.55,marginTop:4}}>
                       Fix details, add dates, or ask anything.
                     </div>
                   )}
                 </div>
+              ) : msg.taskActions?.length > 0 ? (
+                /* Task action confirmation — individual tap required per card */
+                <div>
+                  <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,marginBottom:14}}>{stripMarkdown(msg.text)}</div>
+                  <div style={{background:T.surface,borderRadius:14,overflow:"hidden",border:"1px solid "+T.border}}>
+                    <div style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"1.4px",textTransform:"uppercase",padding:"11px 14px 8px"}}>
+                      Tap to confirm each action
+                    </div>
+                    {msg.taskActions.map((action, j) => (
+                      <div key={j} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:"1px solid "+T.divider}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:14,fontWeight:500,color:T.text,lineHeight:1.35}}>{action.label}</div>
+                          <div style={{fontSize:11,color:action.type==="delete"?T.red:T.accent,marginTop:2,textTransform:"capitalize",fontWeight:600}}>
+                            {action.type==="delete"?"Remove":"Mark complete"}
+                          </div>
+                        </div>
+                        <button
+                          onClick={()=>{
+                            if(action.type==="complete") {
+                              const t=tasks.find(t=>String(t.id)===String(action.id));
+                              if(t&&onUpdateTasks) onUpdateTasks(tasks.map(x=>x.id===t.id?{...x,done:true}:x));
+                            } else if(action.type==="delete") {
+                              if(onRemoveTask) onRemoveTask(action.id);
+                            }
+                            // Remove this action from the message after confirm
+                            setMessages(p=>p.map((m,mi)=>mi===i?{...m,taskActions:m.taskActions.filter((_,ai)=>ai!==j)}:m));
+                          }}
+                          style={{padding:"6px 14px",borderRadius:20,border:"none",background:action.type==="delete"?"rgba(217,79,79,0.1)":T.accentSoft,color:action.type==="delete"?T.red:T.accent,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                          Confirm
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 /* Regular AI reply — primary, prominent */
-                <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,whiteSpace:"pre-wrap"}}>{msg.text}</div>
+                <div style={{fontSize:17,color:T.text,fontFamily:"'Lora',serif",lineHeight:1.65,whiteSpace:"pre-wrap"}}>{stripMarkdown(msg.text)}</div>
               )}
             </div>
           );
         })}
+        {isListening&&<VoiceVisual T={T} text={liveText} variant="inline"/>}
         {loading&&(
           <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:12,opacity:0.6}}>
             {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
@@ -964,12 +961,6 @@ function ExtractedTasksFlow({T, message, onTaskConfirmed}) {
           )}
           {task.duration&&<div style={{fontSize:10,color:T.muted}}>{task.duration} min</div>}
         </div>
-        {task.clarifyingQuestion&&(
-          <div style={{borderTop:"1px solid "+T.divider,padding:"10px 14px",background:T.surface}}>
-            <div style={{fontSize:12,color:T.sub,fontStyle:"italic",marginBottom:6}}>"{task.clarifyingQuestion}"</div>
-            <input value={answer} onChange={function(e){setAnswer(e.target.value);}} onKeyDown={function(e){if(e.key==="Enter")confirm();}} placeholder="Answer or skip..." style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid "+T.border,background:T.card,color:T.text,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-          </div>
-        )}
         <div style={{display:"flex",borderTop:"1px solid "+T.divider}}>
           <button onClick={confirm} style={{flex:1,padding:"10px",border:"none",background:T.accent,color:T.accentText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Add to plan</button>
           <button onClick={skip} style={{width:44,padding:"10px",border:"none",borderLeft:"1px solid "+T.divider,background:"transparent",color:T.muted,fontSize:16,cursor:"pointer"}}>✕</button>
@@ -1712,8 +1703,12 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
   const [planObservation,setPlanObservation]=useState(null);
   const [planQuestion,setPlanQuestion]=useState(null);
   const [candidatesLoading,setCandidatesLoading]=useState(false);
-  const [showAllTasks,setShowAllTasks]=useState(false);
   const [allTasksFilter,setAllTasksFilter]=useState("all");
+  const [showAllTasksSheet,setShowAllTasksSheet]=useState(false);
+  const [showAllTasksFilter,setShowAllTasksFilter]=useState(false);
+  const [allTasksSortBy,setAllTasksSortBy]=useState("default");
+  const [newTaskOpen,setNewTaskOpen]=useState(false);
+  const BLANK_TASK={id:null,label:"",area:"work",urgency:"soon",dueDate:"",hours:"0h",mins:"30m",desc:"",subtasks:[],done:false,notes:"",startTime:""};
   const [workBlockMins,_setWorkBlockMins]=useState(()=>{try{const v=localStorage.getItem("steady_cal_workblock");return v?Number(v):90;}catch{return 90;}});
   const setWorkBlockMins=(v)=>{_setWorkBlockMins(v);try{localStorage.setItem("steady_cal_workblock",String(v));}catch{}};
   const [routineDone,setRoutineDone]=useState({});
@@ -1831,6 +1826,24 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
     return list;
   },[tasks,allTasksFilter]);
 
+  const allTasksSorted=useMemo(()=>{
+    const list=[...allTasksFiltered];
+    if(allTasksSortBy==="urgency"){
+      const order={"now":0,"soon":1,"someday":2};
+      list.sort((a,b)=>(order[a.urgency]??1)-(order[b.urgency]??1));
+    } else if(allTasksSortBy==="date"){
+      list.sort((a,b)=>{
+        if(!a.dueDate&&!b.dueDate) return 0;
+        if(!a.dueDate) return 1;
+        if(!b.dueDate) return -1;
+        return new Date(a.dueDate)-new Date(b.dueDate);
+      });
+    } else if(allTasksSortBy==="area"){
+      list.sort((a,b)=>(a.area||"").localeCompare(b.area||""));
+    }
+    return list;
+  },[allTasksFiltered,allTasksSortBy]);
+
   return (
     <div style={{height:"100%",display:"flex",flexDirection:"column",overflow:"visible"}}>
       {/* Header — always visible, never scrolls */}
@@ -1863,10 +1876,10 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
               {[0,1,2].map(i=>{
                 const confirmed=workTasks[i];
                 return (
-                  <div key={i} style={{marginBottom:6,minHeight:52,borderRadius:12,
+                  <div key={i} onClick={confirmed?()=>openTask(confirmed):()=>setShowAllTasksSheet(true)} style={{marginBottom:6,minHeight:52,borderRadius:12,
                     border:"1.5px "+(confirmed?"solid "+T.border:"dashed "+T.divider),
                     background:confirmed?T.card:"transparent",
-                    display:"flex",alignItems:"center",padding:"10px 14px",gap:10,transition:"all 0.2s"}}>
+                    display:"flex",alignItems:"center",padding:"10px 14px",gap:10,transition:"all 0.2s",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
                     <div style={{width:22,height:22,borderRadius:"50%",
                       background:confirmed?T.accent:T.surface,
                       border:"1.5px solid "+(confirmed?T.accent:T.border),
@@ -1877,13 +1890,13 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
                       <>
                         <span style={{flex:1,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{confirmed.label}</span>
                         {confirmed.startTime&&<span style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:T.muted,flexShrink:0}}><ClockIcon c={T.muted} size={10}/>{confirmed.startTime}</span>}
-                        <button onClick={()=>markDone(confirmed.id)} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <button onClick={e=>{e.stopPropagation();markDone(confirmed.id);}} style={{width:22,height:22,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                           <svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </button>
-                        <button onClick={()=>confirmTask(confirmed)} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                        <button onClick={e=>{e.stopPropagation();confirmTask(confirmed);}} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
                       </>
                     ):(
-                      <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Pick from below</span>
+                      <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Pick from below…</span>
                     )}
                   </div>
                 );
@@ -1896,7 +1909,10 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
                 <div style={{fontSize:11,fontWeight:700,color:T.sub,letterSpacing:"0.6px",textTransform:"uppercase"}}>
                   {candidatesLoading?"Finding your best moves…":"Suggested for today"}
                 </div>
-                {!candidatesLoading&&<button onClick={()=>{ setTop10Candidates([]); setPlanObservation(null); setPlanQuestion(null); loadCandidates(); }} style={{fontSize:11,color:T.muted,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Refresh</button>}
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  {!candidatesLoading&&<button onClick={()=>{ setTop10Candidates([]); setPlanObservation(null); setPlanQuestion(null); loadCandidates(); }} style={{fontSize:11,color:T.muted,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Refresh</button>}
+                  <button onClick={()=>setShowAllTasksSheet(true)} style={{fontSize:11,color:T.accent,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0,fontWeight:500}}>{tasks.filter(t=>!t.done).length} tasks →</button>
+                </div>
               </div>
               {candidatesLoading?(
                 <div style={{display:"flex",gap:4,padding:"16px 0",justifyContent:"center"}}>
@@ -1945,56 +1961,91 @@ function PlanContent({T, tasks, setTasks, captures, userId, onGetUnstuck}) {
               )}
             </div>
 
-            {/* All tasks — collapsible with filters */}
-            <div>
-              <button onClick={()=>setShowAllTasks(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",background:T.card,borderRadius:showAllTasks?"12px 12px 0 0":"12px",border:"1px solid "+T.border,borderBottom:showAllTasks?"1px solid "+T.divider:"1px solid "+T.border,cursor:"pointer",fontFamily:"inherit",transition:"border-radius 0.2s"}}>
-                <div style={{fontSize:13,fontWeight:500,color:T.text}}>All tasks</div>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:11,color:T.muted}}>{tasks.filter(t=>!t.done).length} remaining</span>
-                  {CHEVRON(T.sub,showAllTasks)}
-                </div>
-              </button>
-              {showAllTasks&&(
-                <div style={{background:T.card,borderRadius:"0 0 12px 12px",border:"1px solid "+T.border,borderTop:"none",overflow:"hidden"}}>
-                  <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",scrollbarWidth:"none"}}>
-                    {FILTER_OPTS.map(opt=>(
-                      <button key={opt.id} onClick={()=>setAllTasksFilter(opt.id)} style={{flexShrink:0,padding:"5px 11px",borderRadius:20,border:"1px solid "+(allTasksFilter===opt.id?T.accent:T.border),background:allTasksFilter===opt.id?T.accentSoft:"transparent",color:allTasksFilter===opt.id?T.accent:T.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.15s"}}>{opt.label}</button>
-                    ))}
-                  </div>
-                  {allTasksFiltered.length===0?(
-                    <div style={{padding:"20px 14px",textAlign:"center",color:T.muted,fontSize:13,fontStyle:"italic"}}>
-                      {allTasksFilter==="parked"?"No parked tasks.":"Nothing in this view."}
-                    </div>
-                  ):(
-                    allTasksFiltered.map((task,i)=>(
-                      <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:"1px solid "+T.divider,cursor:"pointer"}} onClick={()=>openTask(task)}>
-                        <AreaIconSVG id={task.area} size={12} color={T.sub}/>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.label}</div>
-                          <div style={{display:"flex",gap:6,alignItems:"center",marginTop:1}}>
-                            {task.dueDate&&<span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
-                            {task.startTime&&<span style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:T.muted}}><ClockIcon c={T.muted} size={10}/>{task.startTime}</span>}
-                            {isParked(task)&&<span style={{fontSize:10,color:T.muted,background:T.surface,borderRadius:4,padding:"1px 5px"}}>parked</span>}
-                          </div>
-                        </div>
-                        <button title={confirmedIds.has(task.id)?"Remove from focus":"Add to focus"} onClick={e=>{ e.stopPropagation(); confirmTask(task); }} style={{width:26,height:26,borderRadius:"50%",border:"1.5px solid "+(confirmedIds.has(task.id)?T.accent:T.border),background:confirmedIds.has(task.id)?T.accent:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",transition:"all 0.15s"}}>
-                          {confirmedIds.has(task.id)?<svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.accentText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>:<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.accent} strokeWidth="2" strokeLinecap="round"/></svg>}
-                        </button>
-                        <button title="Delete" onClick={e=>{ e.stopPropagation(); deleteTask(task.id); }} style={{width:26,height:26,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0,marginLeft:2}}>
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+            {/* New task dotted placeholder */}
+            <div onClick={()=>setNewTaskOpen(true)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",border:"1.5px dashed "+T.divider,borderRadius:12,cursor:"pointer",WebkitTapHighlightColor:"transparent",marginTop:4}}>
+              <div style={{width:22,height:22,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.muted} strokeWidth="2" strokeLinecap="round"/></svg>
+              </div>
+              <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Add a task…</span>
             </div>
           </>
         ):(
           <CalendarView T={T} workTasks={workTasks} setWorkTasks={setWorkTasks} routineDone={routineDone} setRoutineDone={setRoutineDone} onTaskClick={openTask} workBlockMins={workBlockMins} setWorkBlockMins={setWorkBlockMins} markDone={markDone} outerScrollRef={contentScrollRef}/>
         )}
       </div>
+      {/* All Tasks full-window overlay */}
+      {showAllTasksSheet&&(
+        <>
+          <div onClick={()=>setShowAllTasksSheet(false)} style={{position:"fixed",inset:0,zIndex:450,background:"rgba(0,0,0,0.2)"}}/>
+          <div style={{position:"fixed",left:0,right:0,top:88,bottom:72,zIndex:451,background:T.bg,borderRadius:"22px 22px 0 0",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{flexShrink:0,padding:"16px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid "+T.divider}}>
+              <button onClick={()=>setShowAllTasksSheet(false)} style={{background:"none",border:"none",color:T.sub,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                <svg width="14" height="14" viewBox="0 0 18 18" fill="none"><path d="M11 3L5 9l6 6" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                Back
+              </button>
+              <span style={{fontSize:15,fontWeight:600,color:T.text,fontFamily:"'Lora',serif"}}>All Tasks</span>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                {/* Filter toggle */}
+                <button onClick={()=>setShowAllTasksFilter(v=>!v)} title="Filter" style={{background:"none",border:"none",color:showAllTasksFilter?T.accent:T.sub,cursor:"pointer",padding:0,display:"flex",alignItems:"center"}}>
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M3 5h14M6 10h8M9 15h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+                </button>
+                {/* Sort cycle */}
+                <button onClick={()=>setAllTasksSortBy(s=>s==="default"?"urgency":s==="urgency"?"date":s==="date"?"area":"default")} title={"Sort: "+allTasksSortBy} style={{background:"none",border:"none",color:allTasksSortBy!=="default"?T.accent:T.sub,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:3}}>
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 6h12M4 10h8M4 14h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+                  {allTasksSortBy!=="default"&&<span style={{fontSize:10,color:T.accent,fontFamily:"inherit",textTransform:"capitalize"}}>{allTasksSortBy}</span>}
+                </button>
+              </div>
+            </div>
+            {/* Filter chips */}
+            {showAllTasksFilter&&(
+              <div style={{flexShrink:0,display:"flex",gap:6,padding:"10px 20px",overflowX:"auto",scrollbarWidth:"none",borderBottom:"1px solid "+T.divider}}>
+                {FILTER_OPTS.map(opt=>(
+                  <button key={opt.id} onClick={()=>setAllTasksFilter(opt.id)} style={{flexShrink:0,padding:"5px 12px",borderRadius:20,border:"1px solid "+(allTasksFilter===opt.id?T.accent:T.border),background:allTasksFilter===opt.id?T.accentSoft:"transparent",color:allTasksFilter===opt.id?T.accent:T.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.15s"}}>{opt.label}</button>
+                ))}
+              </div>
+            )}
+            {/* Task list */}
+            <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+              {allTasksSorted.length===0?(
+                <div style={{padding:"40px 20px",textAlign:"center",color:T.muted,fontSize:13,fontStyle:"italic"}}>
+                  {allTasksFilter==="parked"?"No parked tasks.":"Nothing here — try a different filter."}
+                </div>
+              ):(
+                allTasksSorted.map((task)=>(
+                  <div key={task.id} onClick={()=>{ openTask(task); setShowAllTasksSheet(false); }} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 20px",borderBottom:"1px solid "+T.divider,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+                    <AreaIconSVG id={task.area} size={13} color={T.sub}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{task.label}</div>
+                      <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2}}>
+                        {task.dueDate&&<span style={{fontSize:11,color:dueColor(task.dueDate,T),fontWeight:500}}>{formatDue(task.dueDate)}</span>}
+                        {task.urgency==="now"&&<span style={{fontSize:10,color:T.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.3px"}}>Now</span>}
+                        {isParked(task)&&<span style={{fontSize:10,color:T.muted,background:T.surface,borderRadius:4,padding:"1px 5px"}}>parked</span>}
+                      </div>
+                    </div>
+                    <button onClick={e=>{e.stopPropagation();markDone(task.id);}} title="Mark done" style={{width:28,height:28,borderRadius:"50%",border:"1.5px solid "+T.border,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}>
+                      <svg width="9" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={T.sub} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <button onClick={e=>{e.stopPropagation();deleteTask(task.id);}} title="Delete" style={{width:28,height:28,borderRadius:"50%",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",padding:0}}>
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M13 4l-1 10H4L3 4" stroke={T.sub} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                  </div>
+                ))
+              )}
+              {/* New task dotted row */}
+              <div onClick={()=>{ setShowAllTasksSheet(false); setNewTaskOpen(true); }} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 20px",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+                <div style={{width:26,height:26,borderRadius:"50%",border:"1.5px dashed "+T.divider,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={T.muted} strokeWidth="2" strokeLinecap="round"/></svg>
+                </div>
+                <span style={{fontSize:13,color:T.muted,fontStyle:"italic"}}>Add a task…</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
       <TaskSheet T={T} task={selected} open={sheetOpen} onClose={()=>setSheetOpen(false)} onSave={u=>setTasks(p=>p.map(t=>t.id===u.id?u:t))} onDelete={id=>{deleteTask(id);setSheetOpen(false);}} onGetUnstuck={onGetUnstuck}/>
+      {/* New Task blank sheet */}
+      <TaskSheet T={T} task={newTaskOpen?BLANK_TASK:null} open={newTaskOpen} onClose={()=>setNewTaskOpen(false)} onSave={u=>{const newId=Date.now();setTasks(p=>[...p,{...u,id:newId}]);setNewTaskOpen(false);}} onDelete={()=>setNewTaskOpen(false)} onGetUnstuck={onGetUnstuck}/>
     </div>
   );
 }
@@ -2425,18 +2476,41 @@ function JournalScreen({T, captures, tasks, chatMessages, chatDates, initialDate
 }
 
 // ── VOICE VISUAL ─────────────────────────────────────────────────────────────
-function VoiceVisual({T, text}) {
+// variant="home"   → centered, full branding (home screen)
+// variant="inline" → left-indented, compact (inside chat thread)
+function VoiceVisual({T, text, variant="home"}) {
   const words=(text||"").trim().split(/\s+/).filter(Boolean);
-  const recent=words.slice(-10);
+  const recent=words.slice(-30);
+
+  if (variant==="inline") {
+    return (
+      <div style={{paddingLeft:12,borderLeft:"2px solid "+T.divider,marginBottom:28}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:"4px 6px",lineHeight:1.7}}>
+          {recent.length===0
+            ? <span style={{fontSize:13,color:T.muted,fontStyle:"italic",fontFamily:"'Lora',serif"}}>Listening…</span>
+            : recent.map((word,i)=>{
+                const fromEnd=recent.length-1-i;
+                const opacity=Math.max(0.2,1-fromEnd*0.04);
+                return <span key={i} style={{fontSize:13,fontFamily:"'Lora',serif",color:T.text,opacity,transition:"opacity 0.3s"}}>{word}</span>;
+              })
+          }
+        </div>
+        <div style={{display:"flex",gap:4,marginTop:8}}>
+          {[0,1,2].map(i=><div key={i} style={{width:4,height:4,borderRadius:"50%",background:T.accent,animation:`dots 1.2s ${i*0.2}s infinite`}}/>)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",overflow:"hidden"}}>
-      <div style={{fontSize:11,color:T.accent,letterSpacing:"2px",textTransform:"uppercase",marginBottom:20,opacity:0.8}}>I have you. Keep going.</div>
-      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:6,maxWidth:280,marginBottom:28,minHeight:80}}>
+      <div style={{fontSize:11,color:T.accent,letterSpacing:"2px",textTransform:"uppercase",marginBottom:20,opacity:recent.length>0?0:0.8,transition:"opacity 0.3s"}}>I have you. Keep going.</div>
+      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:6,maxWidth:320,marginBottom:28,minHeight:80}}>
         {recent.length===0
           ?<div style={{fontSize:16,color:T.muted,fontStyle:"italic",fontFamily:"'Lora',serif",alignSelf:"center"}}>Listening…</div>
           :recent.map((word,i)=>{
             const fromEnd=recent.length-1-i;
-            const opacity=Math.max(0.12,1-fromEnd*0.1);
+            const opacity=Math.max(0.12,1-fromEnd*0.04);
             return <span key={i} style={{fontSize:17,fontFamily:"'Lora',serif",color:T.text,opacity,transition:"opacity 0.3s",lineHeight:1.7}}>{word}</span>;
           })
         }
@@ -2838,12 +2912,11 @@ export default function App() {
             />
             {chatBarInput.trim()
               ? <button onClick={submitChatBar} style={{width:30,height:30,borderRadius:"50%",border:"none",background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}><SendIcon c={T.bg}/></button>
-              : <button onClick={toggleVoice} style={{width:30,height:30,borderRadius:"50%",border:"none",background:isListening?"rgba(217,79,79,0.12)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
-                  {isListening && <span style={{position:"absolute",inset:-3,borderRadius:"50%",border:"2px solid "+T.red,animation:"pulse-ring 1.2s ease-out infinite",pointerEvents:"none"}}/>}
+              : <button onClick={toggleVoice} style={{width:30,height:30,borderRadius:"50%",border:"none",background:isListening?"#2D2A26":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
                   <svg width="15" height="18" viewBox="0 0 15 20" fill="none">
-                    <rect x="4" y="1" width="7" height="11" rx="3.5" stroke={isListening?T.red:T.muted} strokeWidth="1.4"/>
-                    <path d="M1 10c0 3.866 2.91 7 6.5 7s6.5-3.134 6.5-7" stroke={isListening?T.red:T.muted} strokeWidth="1.4" strokeLinecap="round"/>
-                    <line x1="7.5" y1="17" x2="7.5" y2="19" stroke={isListening?T.red:T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                    <rect x="4" y="1" width="7" height="11" rx="3.5" stroke={isListening?"#FFFFFF":T.muted} strokeWidth="1.4"/>
+                    <path d="M1 10c0 3.866 2.91 7 6.5 7s6.5-3.134 6.5-7" stroke={isListening?"#FFFFFF":T.muted} strokeWidth="1.4" strokeLinecap="round"/>
+                    <line x1="7.5" y1="17" x2="7.5" y2="19" stroke={isListening?"#FFFFFF":T.muted} strokeWidth="1.4" strokeLinecap="round"/>
                   </svg>
                 </button>
             }
@@ -2862,6 +2935,8 @@ export default function App() {
             savedMessages={todayChatMessages}
             onMessagesChange={saveChatMessages}
             onAction={handleChatAction}
+            isListening={isListening}
+            liveText={chatBarInput}
             onCapture={cap=>setCaptures(p=>[...p,{...cap,ts:cap.ts||Date.now()}])}
             onAddTasks={formattedTasks=>{
               setTasks(p=>[...p,...formattedTasks]);
